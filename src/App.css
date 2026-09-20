@@ -100,3 +100,41 @@ input[type="range"]:focus-visible::-webkit-slider-thumb{outline:2px solid var(--
 select{appearance:none;-webkit-appearance:none;padding-right:26px;border:1px solid var(--line);border-radius:8px;background-color:var(--elevated);background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 14px) 52%,calc(100% - 9px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;color:var(--soft)}
 select:hover{border-color:var(--accent)}
 select option{background:var(--elevated);color:var(--soft)}
+
+/* Scrollbars. The default Windows bar is wide, grey and completely at odds
+   with everything else, and it is the most-seen control in the app. */
+*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:999px;background:rgba(255,255,255,.18);background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.32);background-clip:content-box}
+::-webkit-scrollbar-corner{background:transparent}
+html[data-theme="paper"] *{scrollbar-color:rgba(20,16,12,.28) transparent}
+html[data-theme="paper"] ::-webkit-scrollbar-thumb{background:rgba(20,16,12,.24);background-clip:content-box}
+html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,12,.4);background-clip:content-box}
+
+/* A smart collection that matches nothing is a normal outcome, not an error. */
+.collection-empty{display:grid;place-items:center;align-content:center;gap:8px;min-height:260px;padding:32px;border:1px dashed var(--line);border-radius:14px;text-align:center}
+.collection-empty strong{font-size:16px;font-weight:550}
+.collection-empty p{max-width:380px;margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.collection-toolbar .back-link{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.04);color:var(--soft);font-size:11px}
+.collection-toolbar .back-link:hover{background:rgba(255,255,255,.09);color:#fff}
+
+/* Track lists. The row actions used to be fully invisible until hover, which
+   made rows look half-rendered; they now sit quietly at low opacity and come
+   forward on hover. Secondary text was also too dim and too small to scan. */
+.row-actions{opacity:.32}
+.track-row:hover .row-actions,.track-row:focus-within .row-actions{opacity:1}
+.track-album,.track-duration{color:var(--muted);font-size:11px}
+.track-title{font-size:13px;font-weight:550;letter-spacing:-.1px}
+.track-row{border-top:1px solid var(--line)}
+.track-row:hover,.track-row:focus-within{background:rgba(255,255,255,.05)}
+/* A quiet accent marks the row you are on without repainting the whole line. */
+.track-row.playing{background:color-mix(in srgb,var(--accent) 12%,transparent);box-shadow:inset 2px 0 var(--accent)}
+.table-head{color:var(--muted);font:9px var(--mono);letter-spacing:1.2px}
+/* Cover cards read as flat white blocks until their art loads; give them a
+   surface and a hover lift so the grid has shape either way. */
+.entity-card,.grid-track>button{border:1px solid var(--line);border-radius:12px;background:var(--elevated);transition:transform .14s ease,border-color .14s ease,background .14s ease}
+.entity-card:hover,.grid-track>button:hover{transform:translateY(-2px);border-color:var(--accent);background:rgba(255,255,255,.06)}
+.entity-card strong,.grid-track strong{display:block;overflow:hidden;font-size:12.5px;font-weight:550;text-overflow:ellipsis;white-space:nowrap}
+.entity-card span,.grid-track span{color:var(--muted);font-size:10.5px}

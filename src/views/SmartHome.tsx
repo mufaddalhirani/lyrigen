@@ -1,5 +1,27 @@
 // Extracted from the former 45KB single-file App.tsx.
 
 import { Icon } from '../components/common/Icon'
+import { smartCollections } from '../lib/smart'
 
-export function SmartHome({ onOpen, stats }: { onOpen: (id: string) => void; stats: LibraryStats | null }) { const cards: Array<{ id: string; title: string; detail: string; icon: 'heart' | 'spark' | 'album' | 'play' | 'queue' }> = [{ id: 'favorites', title: 'Favorites', detail: `${stats?.favorites ?? 0} saved tracks`, icon: 'heart' }, { id: 'lyrics', title: 'Needs lyrics', detail: 'Tracks to give a lyric pass', icon: 'spark' }, { id: 'lossless', title: 'Lossless', detail: 'High-fidelity local files', icon: 'album' }, { id: 'videos', title: 'Music videos', detail: 'Matched local visuals', icon: 'play' }, { id: 'duplicates', title: 'Possible duplicates', detail: 'Metadata matches to review', icon: 'queue' }, { id: 'unrated', title: 'Unrated', detail: 'Give your library a little shape', icon: 'spark' }]; return <section className="smart-page"><div className="page-intro"><span className="kicker">AUTOMATICALLY UPDATED</span><h3>Useful corners of your library.</h3><p>Smart collections are views, not copies. They stay lightweight and local.</p></div><div className="smart-grid">{cards.map(card => <button key={card.id} className="smart-card" onClick={() => onOpen(card.id)}><span className="smart-icon"><Icon name={card.icon} size={21} /></span><strong>{card.title}</strong><span>{card.detail}</span><em><Icon name="chevron" size={16} /></em></button>)}</div></section> }
+export function SmartHome({ onOpen, stats }: { onOpen: (id: string) => void; stats: LibraryStats | null }) {
+  const cards = smartCollections({ favorites: stats?.favorites ?? 0 })
+  return (
+    <section className="smart-page">
+      <div className="page-intro">
+        <span className="kicker">AUTOMATICALLY UPDATED</span>
+        <h3>Useful corners of your library.</h3>
+        <p>Smart collections are views, not copies. They stay lightweight and local.</p>
+      </div>
+      <div className="smart-grid">
+        {cards.map(card => (
+          <button key={card.id} className="smart-card" onClick={() => onOpen(card.id)}>
+            <span className="smart-icon"><Icon name={card.icon} size={21} /></span>
+            <strong>{card.title}</strong>
+            <span>{card.detail}</span>
+            <em><Icon name="chevron" size={16} /></em>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}

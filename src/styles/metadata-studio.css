@@ -48,7 +48,29 @@
   display: grid;
   grid-template-columns: minmax(220px, 320px) 1fr;
   gap: 14px;
+  /* Fix the row height so each column scrolls on its own. Without this the
+     taller column drags the page, and the file list can only show a handful
+     of songs. */
+  height: calc(100vh - 330px);
+  min-height: 300px;
+}
+
+/* The file list scrolls itself, with its header pinned. */
+.studio-files {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.studio-files .studio-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--elevated);
 }
 
 @media (max-width: 860px) {
@@ -65,14 +87,10 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* Stay put while the file list scrolls beside it — the panel describes the
-     focused file, so following the list out of view is useless. */
-  position: sticky;
-  top: 0;
-  align-self: start;
-  max-height: calc(100vh - 210px);
+  /* Bounded by the workspace row, so the comparison scrolls inside the panel
+     rather than stretching the page. */
+  min-height: 0;
 }
-.studio-review > *:last-child { overflow: auto; }
 
 .studio-list-head {
   display: flex;

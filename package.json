@@ -4,7 +4,7 @@
   "description": "Free local-first music player with liquid lyrics, sound tools, and automatic library scanning",
   "author": "Lyrigen",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,12 @@
     "smoke:visual-modes": "node scripts/smoke-visual-modes.mjs",
     "smoke:downloads": "node scripts/smoke-downloads.mjs",
     "shot:ui": "node scripts/ui-shot.mjs",
-    "shot:themes": "node scripts/theme-shot.mjs"
+    "shot:themes": "node scripts/theme-shot.mjs",
+    "bump": "node scripts/bump-version.mjs",
+    "clean:release": "node scripts/clean-release.mjs",
+    "release:patch": "node scripts/bump-version.mjs patch && node scripts/clean-release.mjs && npm run build",
+    "release:minor": "node scripts/bump-version.mjs minor && node scripts/clean-release.mjs && npm run build",
+    "release:major": "node scripts/bump-version.mjs major && node scripts/clean-release.mjs && npm run build"
   },
   "build": {
     "appId": "com.lyrigen.player",
