@@ -1,0 +1,125 @@
+/* ------------------------------------------------------------------
+   Genre mode picker
+   Lives in its own file rather than the 38KB App.css blob so the
+   mode UI can be found and changed without scrolling past everything.
+   ------------------------------------------------------------------ */
+
+.genre-mode-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.genre-mode-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.genre-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.genre-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  /* Transform and opacity only: these still composite cheaply even when the
+     app falls back to software rendering. */
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.genre-mode-card:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.07);
+  transform: translateY(-1px);
+}
+
+.genre-mode-card:focus-visible {
+  outline: 2px solid var(--accent-strong, #d99baa);
+  outline-offset: 2px;
+}
+
+.genre-mode-card.active {
+  border-color: var(--accent-strong, #d99baa);
+  background: rgba(217, 155, 170, 0.14);
+}
+
+.genre-mode-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  /* Windows renders color emoji as oversized fixed-size bitmap glyphs that
+     ignore font-size and spill into surrounding text. Render at a normal
+     size, scale the whole glyph down visually, then clip anything the
+     scale didn't fully contain so it can never bleed into the text below. */
+  font-size: 17px;
+  line-height: 1;
+  transform: scale(0.3);
+}
+
+.genre-mode-card strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.genre-mode-card small {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.3;
+}
+
+/* Each mode gets its own accent so the grid reads at a glance. */
+.genre-mode-card.genre-lofi.active      { border-color: #c9a227; background: rgba(201, 162, 39, 0.15); }
+.genre-mode-card.genre-nightcore.active { border-color: #7ad7f0; background: rgba(122, 215, 240, 0.15); }
+.genre-mode-card.genre-phonk.active     { border-color: #e0553f; background: rgba(224, 85, 63, 0.15); }
+.genre-mode-card.genre-synthwave.active { border-color: #c264d8; background: rgba(194, 100, 216, 0.16); }
+.genre-mode-card.genre-spatial.active   { border-color: #63d0a8; background: rgba(99, 208, 168, 0.15); }
+.genre-mode-card.genre-glitchcore.active{ border-color: #f2c14e; background: rgba(242, 193, 78, 0.15); }
+
+.genre-mode-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.genre-mode-readout span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.genre-mode-readout em {
+  font-style: normal;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.reduce-motion .genre-mode-card {
+  transition: none;
+}
+
+.reduce-motion .genre-mode-card:hover {
+  transform: none;
+}

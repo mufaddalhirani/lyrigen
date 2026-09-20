@@ -1,0 +1,171 @@
+/*
+ * Theme presets. Each one only redefines custom properties that App.css
+ * already consumes, so a theme cannot change layout or behaviour — and a theme
+ * we do not recognise just leaves the defaults in place.
+ *
+ * Applied as `data-theme` / `data-font` / `data-lyric-motion` on <html>.
+ */
+
+/* ---------- Typography ---------- */
+
+:root {
+  --ui-font: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --lyric-font: var(--ui-font);
+  /* Base text colour, so a light theme can invert it in one place. */
+  --text: #f5f1f4;
+  --chrome: rgba(14, 13, 19, .94);
+  --sidebar: linear-gradient(180deg, rgba(26, 24, 34, .93), rgba(14, 13, 19, .98));
+  --hero: linear-gradient(135deg, #221c2c, #181820);
+}
+
+html .titlebar { background: var(--chrome); }
+html .sidebar { background: var(--sidebar); }
+html .sound-hero, html .welcome-hero, html .discover-hero, html .tool-hero { background-image: var(--hero); }
+
+html[data-font="serif"] {
+  --ui-font: Georgia, "Times New Roman", serif;
+  --lyric-font: Georgia, "Times New Roman", serif;
+}
+
+html[data-font="rounded"] {
+  --ui-font: "Segoe UI Variable Display", "Nunito", "Trebuchet MS", sans-serif;
+  --lyric-font: "Nunito", "Segoe UI Variable Display", sans-serif;
+}
+
+html[data-font="mono"] {
+  --ui-font: "Cascadia Mono", Consolas, monospace;
+  --lyric-font: "Cascadia Mono", Consolas, monospace;
+}
+
+html[data-font="condensed"] {
+  --ui-font: "Segoe UI Variable Text", "Arial Narrow", sans-serif;
+  --lyric-font: "Arial Narrow", "Segoe UI Variable Text", sans-serif;
+}
+
+/* `html body` rather than `:root`: index.html sets font-family, color and
+   background directly on body, and a declaration on the element always beats
+   one inherited from html. Everything the theme owns has to out-specify it. */
+html body { font-family: var(--ui-font); color: var(--text); background: var(--bg); }
+html .synced-lyrics, html .plain-lyrics { font-family: var(--lyric-font); }
+
+/* ---------- Palettes ---------- */
+
+html[data-theme="spotlight"] {
+  --bg: #08080a;
+  --workspace: #0e0e11;
+  --elevated: #17171c;
+  --line: rgba(255, 255, 255, .12);
+  --accent: #ffffff;
+  --accent-strong: #ffffff;
+  --muted: #8b8b93;
+}
+html[data-theme="spotlight"] .synced-lyrics { --amll-lp-color: #fff; }
+html[data-theme="spotlight"] .cover-bloom { opacity: .1; }
+
+html[data-theme="lucid"] {
+  --bg: #0a0f16;
+  --workspace: #101822;
+  --elevated: #17212e;
+  --line: rgba(160, 210, 255, .14);
+  --accent: #7fd1e8;
+  --accent-strong: #a9e6f7;
+  --accent-cool: #8fb6ff;
+  --muted: #93a6b8;
+}
+html[data-theme="lucid"] .lyrics-column,
+html[data-theme="lucid"] .mini-player {
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+}
+
+html[data-theme="ember"] {
+  --bg: #120d09;
+  --workspace: #1a1310;
+  --elevated: #241a15;
+  --line: rgba(255, 200, 150, .12);
+  --accent: #e0a066;
+  --accent-strong: #f5c58c;
+  --muted: #b09a88;
+}
+
+html[data-theme="paper"] {
+  --bg: #f4f1ec;
+  --workspace: #faf8f5;
+  --elevated: #ffffff;
+  --line: rgba(20, 16, 12, .13);
+  --accent: #b5654a;
+  --accent-strong: #8f4a33;
+  --accent-cool: #4a6a8f;
+  --muted: #6b635a;
+  --soft: #33302b;
+  color: #221f1b;
+}
+html[data-theme="paper"] {
+  --text: #221f1b;
+  --chrome: rgba(250, 248, 245, .94);
+  --sidebar: linear-gradient(180deg, #faf8f5, #efeae3);
+  --hero: linear-gradient(135deg, #ffffff, #f3efe9);
+}
+/* Chrome that App.css hard-codes for the dark palette. */
+html[data-theme="paper"] .nocturne-app { background: var(--bg); }
+html[data-theme="paper"] .sound-hero, html[data-theme="paper"] .welcome-hero,
+html[data-theme="paper"] .discover-hero, html[data-theme="paper"] .tool-hero { color: #221f1b; border: 1px solid var(--line); }
+html[data-theme="paper"] .nav button, html[data-theme="paper"] .sidebar-section button { color: #55504a; }
+html[data-theme="paper"] .nav button:hover, html[data-theme="paper"] .sidebar-section button:hover,
+html[data-theme="paper"] .nav button.active, html[data-theme="paper"] .sidebar-section button.active { background: rgba(20, 16, 12, .07); color: #221f1b; }
+html[data-theme="paper"] .main-topline h2, html[data-theme="paper"] .appearance-head h4,
+html[data-theme="paper"] .sidebar-heading h1, html[data-theme="paper"] .brand span { color: #221f1b; }
+html[data-theme="paper"] .sidebar-heading p, html[data-theme="paper"] .root-status small { color: #6b635a; }
+html[data-theme="paper"] .window-controls button { color: #55504a; }
+html[data-theme="paper"] .window-controls button:hover { background: rgba(20, 16, 12, .09); color: #221f1b; }
+html[data-theme="paper"] .track-row:hover, html[data-theme="paper"] .queue-row.active { background: rgba(20, 16, 12, .05); }
+html[data-theme="paper"] .appearance-chip { color: #3b3630; }
+html[data-theme="paper"] .sound-hero p, html[data-theme="paper"] .welcome-hero p,
+html[data-theme="paper"] .discover-hero p, html[data-theme="paper"] .tool-hero p { color: #4f4942; }
+html[data-theme="paper"] .ghost-button, html[data-theme="paper"] .inline-glass-button { border-color: rgba(20,16,12,.2); background: rgba(20,16,12,.04); color: #322e29; }
+html[data-theme="paper"] .ghost-button:hover { background: rgba(20,16,12,.09); }
+html[data-theme="paper"] .synced-lyrics { --amll-lp-color: #221f1b; --amll-lp-hover-bg-color: rgba(0, 0, 0, .06); }
+html[data-theme="paper"] .synced-lyrics [class*="wordBody"]:hover { background: rgba(0, 0, 0, .1); }
+html[data-theme="paper"] .player-shell { background: var(--bg) !important; }
+html[data-theme="paper"] .background-veil { background: linear-gradient(120deg, rgba(244, 241, 236, .94), rgba(244, 241, 236, .8)); }
+html[data-theme="paper"] .mini-player { background: rgba(255, 255, 255, .86); }
+html[data-theme="paper"] .mini-play { background: #221f1b; color: #faf8f5; }
+html[data-theme="paper"] .mini-track strong { color: #221f1b; }
+html[data-theme="paper"] .control-dock { background: rgba(255, 255, 255, .9); }
+
+html[data-theme="monochrome"] {
+  --bg: #0c0c0d;
+  --workspace: #141415;
+  --elevated: #1d1d1f;
+  --line: rgba(255, 255, 255, .11);
+  --accent: #b9b9bd;
+  --accent-strong: #e8e8ec;
+  --accent-cool: #9a9aa0;
+  --success: #b9b9bd;
+  --muted: #8d8d93;
+}
+html[data-theme="monochrome"] .cover-bloom { filter: blur(55px) grayscale(1); opacity: .14; }
+html[data-theme="monochrome"] .hero-artwork img,
+html[data-theme="monochrome"] .mini-cover { filter: grayscale(1); }
+
+/* ---------- Lyric motion ---------- */
+
+html[data-lyric-motion="scale"] .synced-lyrics { --amll-lp-font-size: clamp(18px, 2.4vw, 30px); }
+html[data-lyric-motion="scale"] .synced-lyrics [class*="lyricLine"] { transition: transform .28s ease, opacity .28s ease; }
+
+html[data-lyric-motion="blur"] .synced-lyrics [class*="lyricLine"]:not([class*="active"]) {
+  filter: blur(2.2px);
+  opacity: .5;
+  transition: filter .3s ease, opacity .3s ease;
+}
+
+html[data-lyric-motion="glow"] .synced-lyrics [class*="lyricLine"][class*="active"] {
+  text-shadow: 0 0 26px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* "Still" removes the per-line motion entirely — cheapest option on a weak GPU. */
+html[data-lyric-motion="none"] .synced-lyrics [class*="lyricLine"] {
+  transition: none !important;
+  filter: none !important;
+  text-shadow: none !important;
+}

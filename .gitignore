@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-electron/
+release/
+junk/
+.lyrigen-smoke-profile/
+.smoke-tmp/
+*.log

@@ -1,0 +1,80 @@
+{
+  "name": "lyrigen-player",
+  "productName": "Lyrigen",
+  "description": "Free local-first music player with liquid lyrics, sound tools, and automatic library scanning",
+  "author": "Lyrigen",
+  "private": true,
+  "version": "2.0.0",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "preview:browser": "vite --config vite.browser.config.ts",
+    "build": "tsc && vite build && electron-builder",
+    "build:dir": "tsc && vite build && electron-builder --dir",
+    "preview": "vite preview",
+    "smoke:visual-modes": "node scripts/smoke-visual-modes.mjs",
+    "smoke:downloads": "node scripts/smoke-downloads.mjs",
+    "shot:ui": "node scripts/ui-shot.mjs",
+    "shot:themes": "node scripts/theme-shot.mjs"
+  },
+  "build": {
+    "appId": "com.lyrigen.player",
+    "productName": "Lyrigen",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/lyrigen-icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "Lyrigen-Portable-${version}.exe"
+    }
+  },
+  "dependencies": {
+    "@applemusic-like-lyrics/core": "^0.5.2",
+    "@applemusic-like-lyrics/lyric": "^1.0.2",
+    "@applemusic-like-lyrics/react": "^0.5.2",
+    "music-metadata": "^11.15.0",
+    "node-id3": "^0.2.9",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.63.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8",
+    "vite-plugin-electron": "^0.28.2"
+  }
+}
