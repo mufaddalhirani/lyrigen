@@ -25,7 +25,8 @@ export type PersistentState = {
   playlists: PlaylistRecord[]
   favorites: string[]
   ratings: Record<string, number>
-  playHistory: Array<{ trackId: string; playedAt: string; positionMs?: number }>
+  /** `seconds` is the track's length at the time it was played, for listening totals. */
+  playHistory: Array<{ trackId: string; playedAt: string; positionMs?: number; seconds?: number }>
   resumePositions: Record<string, number>
   queue: QueueState
   settings: Record<string, unknown>

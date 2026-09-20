@@ -427,7 +427,8 @@ export function Player({
     handlePlay()
     if (countedTrackRef.current === audioPath) return
     countedTrackRef.current = audioPath
-    void window.electronAPI.recordPlay(audioPath.toLocaleLowerCase()).catch(() => undefined)
+    // Pass the length so listening totals can be summed without storing a tick per second.
+    void window.electronAPI.recordPlay(audioPath.toLocaleLowerCase(), durationMs ? durationMs / 1000 : metadata?.duration ?? undefined).catch(() => undefined)
     try {
       const key = 'lyrigen-listening-stats-v1'
       const stats = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, { plays: number; lastPlayed: string; title: string }>

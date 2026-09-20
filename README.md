@@ -52,6 +52,12 @@ Sped-up and slowed edits are handled: Lyrigen recognises Nightcore / Slowed + Re
 
 Set an **inbox folder** in Downloads settings (your browser's download folder, say) and anything audio that lands there is tagged, given lyrics and filed automatically.
 
+## Listening and recaps
+
+The **Listening** screen keeps a recap for the last week, month, year, or all time: plays, hours listened, how many different songs and artists, your top artists, songs and genres, and a chart of when you listened. Everything stays on this computer — no account, nothing uploaded.
+
+Plays are counted once per track per play, so hours listened treats each play as a full listen.
+
 ## Themes and appearance
 
 Sound Lab → **Themes** changes how the whole app looks, straight away, and remembers it:

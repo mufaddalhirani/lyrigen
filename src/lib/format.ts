@@ -17,6 +17,23 @@ export function displayArtist(track: LibraryTrack) {
   return track.artist || 'Unknown artist'
 }
 
+/**
+ * The lead name from an artist credit.
+ *
+ * Tags routinely hold a whole credit list — "Solya, Solya", "JVKE, Nick Jonas"
+ * — and grouping on the raw string turns one artist into several, which is why
+ * the same person can appear three times in the Artists grid. Grouping on the
+ * lead name collapses them. Mirrors `primaryArtist` in electron/song-naming.ts.
+ */
+export function primaryArtistName(artist: string | null | undefined) {
+  if (!artist) return 'Unknown artist'
+  const [first] = artist
+    .split(/\s*(?:,|&|\+|\/|;|\bx\b|\bvs\.?\b|\band\b|\bft\.?\b|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*/i)
+    .map(part => part.trim())
+    .filter(Boolean)
+  return first || artist
+}
+
 /** Reads a value written by a pre-2.0 build of Lyrigen. Never throws. */
 export function legacyJson(key: string): unknown {
   try {

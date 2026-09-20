@@ -5,7 +5,7 @@ import { Artwork } from '../components/common/Artwork'
 import type { SmartCollection } from '../lib/smart'
 import { Icon } from '../components/common/Icon'
 import { TrackRow } from '../components/common/TrackRow'
-import { displayArtist } from '../lib/format'
+import { primaryArtistName, displayArtist } from '../lib/format'
 import type { View, LibraryMode, SortMode } from '../types/views'
 
 export function CollectionView({ view, tracks, genres, smart, onLeaveSmart, mode, setMode, sort, setSort, genreFilter, setGenreFilter, onPlay, onPlayNext, onPlayLast, onFavorite, onRating, onInspect, onPlaylist, onOpenPlaylist, playlists }: { view: View; tracks: LibraryTrack[]; albums: LibraryTrack[]; artists: string[]; genres: string[]; mode: LibraryMode; setMode: (mode: LibraryMode) => void; sort: SortMode; setSort: (sort: SortMode) => void; genreFilter: string; setGenreFilter: (genre: string) => void; onPlay: (track: LibraryTrack, source?: LibraryTrack[]) => void; onPlayNext: (track: LibraryTrack) => void; onPlayLast: (track: LibraryTrack) => void; onFavorite: (track: LibraryTrack) => void; onRating: (track: LibraryTrack) => void; onInspect: (track: LibraryTrack) => void; onPlaylist: (track: LibraryTrack) => void; onOpenPlaylist: (id: string) => void; playlists: PlaylistRecord[]; smart?: SmartCollection | null; onLeaveSmart?: () => void }) {
@@ -26,7 +26,7 @@ export function CollectionView({ view, tracks, genres, smart, onLeaveSmart, mode
     const keyOf = (track: LibraryTrack) =>
       view === 'folders' ? folderOf(track)
       : view === 'albums' ? `${track.album} · ${track.albumArtist || track.artist || ''}`
-      : view === 'artists' ? displayArtist(track)
+      : view === 'artists' ? primaryArtistName(track.artist)
       : track.genre || 'Unknown genre'
 
     const map = new Map<string, LibraryTrack[]>()

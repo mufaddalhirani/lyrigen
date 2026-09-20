@@ -176,3 +176,34 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 /* Untimed text gets the same measure and rhythm as the synced stage. */
 .plain-lyrics{max-width:46ch;margin:0 auto;font-size:clamp(15px,1.5vw,19px);font-weight:520;line-height:1.75}
 .plain-lyrics p{margin:0 0 .55em;color:var(--soft)}
+
+/* Listening recap */
+.recap-card{margin-top:18px;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--elevated)}
+.recap-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.recap-head h3{margin:8px 0 0;font-size:19px;font-weight:500}
+.recap-ranges{display:flex;gap:5px}
+.recap-ranges button{height:30px;padding:0 11px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.04);color:var(--soft);font-size:11px}
+.recap-ranges button:hover{background:rgba(255,255,255,.09)}
+.recap-ranges button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);color:#fff}
+.recap-figures{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:18px 0 4px}
+.recap-figures div{padding:14px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.03)}
+.recap-figures strong{display:block;font-size:26px;font-weight:600;letter-spacing:-.5px}
+.recap-figures span{color:var(--muted);font-size:10.5px}
+/* Plays-per-day: one series, one hue, thin bars with rounded data-ends sitting
+   on a shared baseline. Only the peak is called out in the caption. */
+.plays-chart{margin:20px 0 4px}
+.plays-chart figcaption{margin-bottom:9px;color:var(--muted);font-size:10.5px}
+.plays-chart figcaption span{opacity:.8}
+.plays-bars{display:flex;align-items:flex-end;gap:2px;height:96px;padding-bottom:1px;border-bottom:1px solid var(--line)}
+.plays-bar{flex:1;min-width:2px;border-radius:4px 4px 0 0;background:color-mix(in srgb,var(--accent) 62%,transparent);transition:background .12s ease}
+.plays-bar:hover{background:var(--accent-strong)}
+.plays-bar.peak{background:var(--accent)}
+.plays-axis{display:flex;justify-content:space-between;margin-top:7px;color:var(--muted);font:9px var(--mono)}
+.recap-lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
+.recap-lists ol{margin:10px 0 0;padding:0;list-style:none;counter-reset:rank}
+.recap-lists li{display:flex;align-items:center;gap:10px;padding:6px 0;counter-increment:rank}
+.recap-lists li::before{content:counter(rank);min-width:16px;color:var(--muted);font:10px var(--mono)}
+.recap-lists b{flex:1;min-width:0;overflow:hidden;font-size:12px;font-weight:550;text-overflow:ellipsis;white-space:nowrap}
+.recap-lists b small{display:block;overflow:hidden;color:var(--muted);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap}
+.recap-lists em{color:var(--muted);font:10px var(--mono);font-style:normal}
+.recap-none{margin:10px 0 0;color:var(--muted);font-size:10.5px}

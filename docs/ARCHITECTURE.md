@@ -498,3 +498,24 @@ a line index, so `SyncedLyrics` hit-tests the word element under the pointer
 and maps its position to that line's word list, falling back to the line start
 if the DOM is not what it expects. AMLL's class names are content-hashed, hence
 the `[class*="wordBody"]` substring selectors.
+
+## 14. Listening history and recaps
+
+Every load of a track records one play (`record-play`), not one per second, so
+"hours listened" sums each play's track length rather than measured playtime.
+That is an approximation, and an honest one — it over-counts a song you skip
+thirty seconds into. History is capped at 20,000 entries, enough for a year's
+recap at a couple of megabytes on disk.
+
+`get-listening-recap` joins the history against the current library, so a
+deleted file stops skewing the totals, and credits plays to the **lead** artist
+(`primaryArtist`) — otherwise "Solya" and "Solya, Solya" rank separately.
+
+The chart buckets by day up to a month, by week up to a year, and by month
+beyond, never exceeding 52 bars. A year drawn as 365 bars is sub-pixel and
+reads as an empty axis; the label follows the bucket ("Plays per week") so the
+chart never implies a resolution it does not have.
+
+Artist grouping in the library uses the same lead-name rule
+(`primaryArtistName` in `src/lib/format.ts`). The word boundaries in that
+regex are load-bearing: without them "and" matches inside Alexander.

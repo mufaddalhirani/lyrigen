@@ -22,7 +22,25 @@ import { Downloader, type DownloadOptions, type DownloadSettings, type OrganizeA
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
 import { isPreviewing, previewUrl, setToolsFolder, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
 import { setBetterLyricsApiKey } from './lyrics-sources'
-import { PATH_PRESETS } from './song-naming'
+import { PATH_PRESETS, primaryArtist } from './song-naming'
+
+/** A listening recap for one window of time. Mirrored in src/types/electron.d.ts. */
+export interface ListeningRecap {
+  range: 'week' | 'month' | 'year' | 'all'
+  plays: number
+  /** Total listening time in seconds, counting each play as a full listen. */
+  seconds: number
+  distinctTracks: number
+  distinctArtists: number
+  topTracks: Array<{ id: string; title: string; artist: string | null; plays: number; seconds: number }>
+  topArtists: Array<{ name: string; plays: number; seconds: number }>
+  topGenres: Array<{ name: string; plays: number }>
+  perDay: Array<{ date: string; plays: number }>
+  /** What one bar covers, so the chart can label itself honestly. */
+  bucketSize: 'day' | 'week' | 'month'
+  peakDay: { date: string; plays: number } | null
+}
+
 
 // GPU compositing avoids making the CPU paint every glass/lyric animation
 // (see graphics.ts; --safe-graphics is the explicit recovery mode).
@@ -912,11 +930,98 @@ ipcMain.handle('set-rating', async (_event, trackId: string, rating: number) => 
   getStateStore().update(state => { if (rating > 0) state.ratings[trackId] = Math.max(1, Math.min(5, Math.round(rating))); else delete state.ratings[trackId] })
   return currentLibraryStats()
 })
-ipcMain.handle('record-play', (_event, trackId: string) => {
+ipcMain.handle('record-play', (_event, trackId: string, seconds?: number) => {
   getStateStore().update(state => {
-    state.playHistory.push({ trackId, playedAt: new Date().toISOString() })
-    state.playHistory = state.playHistory.slice(-500)
+    state.playHistory.push({ trackId, playedAt: new Date().toISOString(), seconds: Number.isFinite(seconds) ? Math.max(0, Math.round(seconds!)) : undefined })
+    // A year's recap needs more than a few hundred entries. At roughly 80 bytes
+    // each this is a couple of megabytes at the cap, which is fine on disk.
+    state.playHistory = state.playHistory.slice(-20_000)
   })
+})
+
+/**
+ * Listening recap for a window of time.
+ *
+ * Built from `playHistory` joined against the library, so it reflects what is
+ * actually on disk now: a track that has been deleted stops skewing the totals.
+ * `seconds` is the track's length when it was played, which counts a play as a
+ * full listen — Lyrigen records one play per track per load, not per second, so
+ * this is an honest approximation rather than measured playtime.
+ */
+ipcMain.handle('get-listening-recap', (_event, range: 'week' | 'month' | 'year' | 'all' = 'week'): ListeningRecap => {
+  const state = getStateStore().get()
+  const days = range === 'week' ? 7 : range === 'month' ? 30 : range === 'year' ? 365 : 0
+  const since = days ? Date.now() - days * 86_400_000 : 0
+  const byId = new Map((libraryCache?.items ?? []).map(item => [item.id, item]))
+
+  const entries = state.playHistory.filter(entry => {
+    const at = Date.parse(entry.playedAt)
+    return Number.isFinite(at) && (!since || at >= since) && byId.has(entry.trackId)
+  })
+
+  const tally = <T,>(key: (entry: typeof entries[number]) => T | null) => {
+    const counts = new Map<T, { plays: number; seconds: number }>()
+    for (const entry of entries) {
+      const value = key(entry)
+      if (value === null || value === undefined || value === '') continue
+      const bucket = counts.get(value) ?? { plays: 0, seconds: 0 }
+      bucket.plays += 1
+      bucket.seconds += entry.seconds ?? byId.get(entry.trackId)?.duration ?? 0
+      counts.set(value, bucket)
+    }
+    return [...counts.entries()].sort((left, right) => right[1].plays - left[1].plays)
+  }
+
+  const seconds = entries.reduce((total, entry) => total + (entry.seconds ?? byId.get(entry.trackId)?.duration ?? 0), 0)
+  // Artists are credited to the lead name, so "A, B" and "A" are one artist.
+  const artists = tally(entry => primaryArtist(byId.get(entry.trackId)?.artist ?? null))
+  const genres = tally(entry => byId.get(entry.trackId)?.genre ?? null)
+  const tracks = tally(entry => entry.trackId)
+
+  // Bucket so the chart stays legible: a year as 365 bars is sub-pixel and
+  // reads as an empty axis. Days for short ranges, weeks for a year, months
+  // for all time — never more than ~52 bars.
+  const oldest = entries.length ? Math.min(...entries.map(entry => Date.parse(entry.playedAt))) : Date.now()
+  const span = days || Math.max(1, Math.ceil((Date.now() - oldest) / 86_400_000))
+  const bucketSize: ListeningRecap['bucketSize'] = span <= 31 ? 'day' : span <= 400 ? 'week' : 'month'
+  const step = bucketSize === 'day' ? 1 : bucketSize === 'week' ? 7 : 30
+  const count = Math.max(1, Math.min(Math.ceil(span / step), 52))
+
+  const startOfBucket = (at: number) => {
+    const offset = Math.floor((Date.now() - at) / (step * 86_400_000))
+    return new Date(Date.now() - offset * step * 86_400_000).toISOString().slice(0, 10)
+  }
+  const bucketCounts = new Map<string, number>()
+  for (const entry of entries) {
+    const key = startOfBucket(Date.parse(entry.playedAt))
+    bucketCounts.set(key, (bucketCounts.get(key) ?? 0) + 1)
+  }
+  const perDay: ListeningRecap['perDay'] = []
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const date = new Date(Date.now() - offset * step * 86_400_000).toISOString().slice(0, 10)
+    perDay.push({ date, plays: bucketCounts.get(date) ?? 0 })
+  }
+  const peak = perDay.reduce<ListeningRecap['peakDay']>((best, day) => (!best || day.plays > best.plays ? day : best), null)
+
+  return {
+    range,
+    plays: entries.length,
+    seconds,
+    distinctTracks: tracks.length,
+    distinctArtists: artists.length,
+    topTracks: tracks.slice(0, 8).map(([id, value]) => ({
+      id,
+      title: byId.get(id)?.title ?? 'Unknown',
+      artist: byId.get(id)?.artist ?? null,
+      plays: value.plays,
+      seconds: value.seconds,
+    })),
+    topArtists: artists.slice(0, 8).map(([name, value]) => ({ name: String(name), plays: value.plays, seconds: value.seconds })),
+    topGenres: genres.slice(0, 6).map(([name, value]) => ({ name: String(name), plays: value.plays })),
+    perDay,
+    bucketSize,
+    peakDay: peak && peak.plays > 0 ? peak : null,
+  }
 })
 // Kept separate from record-play so periodic "where was I" saves during
 // playback never inflate play-count/recently-played stats.

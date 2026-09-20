@@ -153,6 +153,23 @@ interface PlaylistRecord {
   updatedAt: string
 }
 
+/** A listening recap for one window of time. Mirrored in src/types/electron.d.ts. */
+interface ListeningRecap {
+  range: 'week' | 'month' | 'year' | 'all'
+  plays: number
+  /** Total listening time in seconds, counting each play as a full listen. */
+  seconds: number
+  distinctTracks: number
+  distinctArtists: number
+  topTracks: Array<{ id: string; title: string; artist: string | null; plays: number; seconds: number }>
+  topArtists: Array<{ name: string; plays: number; seconds: number }>
+  topGenres: Array<{ name: string; plays: number }>
+  perDay: Array<{ date: string; plays: number }>
+  /** What one bar covers, so the chart can label itself honestly. */
+  bucketSize: 'day' | 'week' | 'month'
+  peakDay: { date: string; plays: number } | null
+}
+
 interface LibraryStats {
   tracks: number
   albums: number
@@ -356,7 +373,8 @@ interface ElectronAPI {
   updateQueueState: (queue: QueueState) => Promise<QueueState>
   setFavorite: (trackId: string, favorite: boolean) => Promise<LibraryStats>
   setRating: (trackId: string, rating: number) => Promise<LibraryStats>
-  recordPlay: (trackId: string) => Promise<void>
+  recordPlay: (trackId: string, seconds?: number) => Promise<void>
+  getListeningRecap: (range: 'week' | 'month' | 'year' | 'all') => Promise<ListeningRecap>
   saveResumePosition: (trackId: string, positionMs: number) => Promise<void>
   getResumePosition: (trackId: string) => Promise<number | null>
   getSettings: () => Promise<SettingsState>
