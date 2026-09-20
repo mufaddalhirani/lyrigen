@@ -69,9 +69,9 @@
 .synced-lyrics .amll-lyric-player{mix-blend-mode:normal}
 .visual-mode-lyrics .synced-lyrics{--amll-lp-font-size:clamp(20px,2.8vw,34px)}
 /* Individual words are click targets (seek to that word), so say so on hover. AMLL's class names are hashed, hence the substring match. */
-.synced-lyrics [class*="wordBody"]{cursor:pointer;border-radius:5px;transition:background-color .12s ease}
-.synced-lyrics [class*="wordBody"]:hover{background:rgba(255,255,255,.16)}
-.reduce-motion .synced-lyrics [class*="wordBody"]{transition:none}
+.synced-lyrics [class*="emphasizeWrapper"]{cursor:pointer;border-radius:5px;transition:background-color .12s ease}
+.synced-lyrics [class*="emphasizeWrapper"]:hover{background:rgba(255,255,255,.16)}
+.reduce-motion .synced-lyrics [class*="emphasizeWrapper"]{transition:none}
 .plain-lyrics{height:100%;overflow:auto;padding:0 6px;color:#d9d1dd;font-size:15px;line-height:1.7}.plain-lyrics p{margin:0 0 .55em}
 .lyrics-resume{position:absolute;z-index:2;left:50%;bottom:8px;transform:translateX(-50%);height:30px;padding:0 13px;border:1px solid var(--line);border-radius:999px;background:rgba(27,24,35,.94);color:#e8e1eb;font-size:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)}.lyrics-resume:hover{background:rgba(217,155,170,.2);color:#fff}
 
@@ -138,3 +138,41 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 .entity-card:hover,.grid-track>button:hover{transform:translateY(-2px);border-color:var(--accent);background:rgba(255,255,255,.06)}
 .entity-card strong,.grid-track strong{display:block;overflow:hidden;font-size:12.5px;font-weight:550;text-overflow:ellipsis;white-space:nowrap}
 .entity-card span,.grid-track span{color:var(--muted);font-size:10.5px}
+
+/* Lyric stage typography.
+   Apple's treatment is heavy type, tight tracking, generous leading, and a
+   clear hierarchy between the line being sung and the rest. The renderer
+   handles dimming and scale; these set the letterforms it scales. */
+.synced-lyrics{
+  --amll-lp-font-size:clamp(22px,2.9vw,40px);
+  --amll-lp-line-padding-x:8px;
+  --amll-lp-color:#f6f2f7;
+}
+.synced-lyrics .amll-lyric-player{font-family:var(--lyric-font);font-weight:680;letter-spacing:-.022em;line-height:1.24}
+.synced-lyrics [class*="emphasizeWrapper"]{transition:text-shadow .22s ease,background-color .12s ease}
+/* Background vocals are an aside: smaller, lighter, set back. */
+.synced-lyrics [class*="lyricBgLine"]{font-size:.62em;font-weight:560;opacity:.72}
+/* The interlude dots between verses read as punctuation, not as a lyric. */
+.synced-lyrics [class*="interludeDots"]{opacity:.5}
+.visual-mode-lyrics .synced-lyrics{--amll-lp-font-size:clamp(26px,3.6vw,52px)}
+/* Lyrics-only mode is the one people stare at, so give it room to breathe. */
+.visual-mode-lyrics .lyrics-viewport{padding-inline:clamp(8px,4vw,64px)}
+.lyrics-resume{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);padding:7px 13px;border:1px solid var(--line);border-radius:999px;background:rgba(20,18,26,.88);backdrop-filter:blur(12px);color:var(--soft);font-size:11px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.lyrics-resume:hover{background:rgba(32,29,40,.95);color:#fff}
+
+/* Draggable mini bar. Grab anywhere that is not a control; while dragging the
+   transition is dropped so it tracks the pointer exactly. */
+.mini-player{cursor:grab;transition:box-shadow .16s ease,background .16s ease}
+.mini-player.dragging{cursor:grabbing;transition:none;user-select:none;box-shadow:0 30px 70px rgba(0,0,0,.6)}
+.mini-player.is-placed{bottom:auto}
+.mini-identity,.mini-transport button,.mini-meta button,.mini-seek{cursor:default}
+.mini-identity,.mini-transport button,.mini-meta button{cursor:pointer}
+
+/* Fade the lyric stage at both edges so lines dissolve instead of being sliced
+   off by the panel border — the single biggest thing that makes a lyric view
+   read as finished rather than clipped. */
+.lyrics-viewport{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 11%,#000 86%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 11%,#000 86%,transparent 100%)}
+.visual-mode-lyrics .lyrics-viewport{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 9%,#000 89%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 9%,#000 89%,transparent 100%)}
+/* Untimed text gets the same measure and rhythm as the synced stage. */
+.plain-lyrics{max-width:46ch;margin:0 auto;font-size:clamp(15px,1.5vw,19px);font-weight:520;line-height:1.75}
+.plain-lyrics p{margin:0 0 .55em;color:var(--soft)}

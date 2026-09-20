@@ -37,6 +37,76 @@ const VISUAL_MODE_OPTIONS: Array<{ value: VisualMode; label: string; description
 
 const VISUALIZER_BARS = Array.from({ length: 18 }, (_, index) => index)
 
+
+/**
+ * Let the mini bar be dragged anywhere, and remember where it was left.
+ *
+ * The bar is centred with `left:50%` + a translate, so the first drag has to
+ * switch it to explicit pixels or it would jump by half its width. Position is
+ * kept as a fraction of the viewport, so it stays sensibly placed when the
+ * window is resized, and is clamped back inside on load. Double-click returns
+ * it to the centre.
+ */
+function useDraggableBar(enabled: boolean) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [placed, setPlaced] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('lyrigen-mini-position') || 'null')
+      return saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) ? saved : null
+    } catch { return null }
+  })
+
+  const reset = useCallback(() => {
+    setPlaced(null)
+    try { localStorage.removeItem('lyrigen-mini-position') } catch { /* storage blocked */ }
+  }, [])
+
+  useEffect(() => {
+    const element = ref.current
+    if (!element || !enabled) return
+    const onPointerDown = (event: PointerEvent) => {
+      // The scrubber owns its own drag; everything else on the bar can move it.
+      // Buttons still work, because a press that never moves stays a click —
+      // only a real drag suppresses the click that would follow it.
+      if ((event.target as HTMLElement).closest('input, select')) return
+      if (event.button !== 0) return
+      const rect = element.getBoundingClientRect()
+      const grabX = event.clientX - rect.left
+      const grabY = event.clientY - rect.top
+      let moved = false
+      const onMove = (move: PointerEvent) => {
+        if (!moved && Math.hypot(move.clientX - event.clientX, move.clientY - event.clientY) < 4) return
+        moved = true
+        element.classList.add('dragging')
+        const x = Math.min(Math.max(move.clientX - grabX, 8), window.innerWidth - rect.width - 8)
+        const y = Math.min(Math.max(move.clientY - grabY, 8), window.innerHeight - rect.height - 8)
+        setPlaced({ x: x / window.innerWidth, y: y / window.innerHeight })
+      }
+      const onUp = () => {
+        element.classList.remove('dragging')
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        if (!moved) return
+        // Swallow the click this drag would otherwise fire on whatever was grabbed.
+        const swallow = (click: MouseEvent) => { click.stopPropagation(); click.preventDefault() }
+        window.addEventListener('click', swallow, { capture: true, once: true })
+        setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
+        setPlaced(current => { try { localStorage.setItem('lyrigen-mini-position', JSON.stringify(current)) } catch { /* storage blocked */ } return current })
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    }
+    element.addEventListener('pointerdown', onPointerDown)
+    return () => element.removeEventListener('pointerdown', onPointerDown)
+  }, [enabled])
+
+  const style = placed
+    ? ({ left: `${Math.min(Math.max(placed.x, 0), 0.98) * 100}%`, top: `${Math.min(Math.max(placed.y, 0), 0.96) * 100}%`, bottom: 'auto', transform: 'none' } as CSSProperties)
+    : undefined
+
+  return { ref, style, placed: Boolean(placed), reset }
+}
+
 function formatTime(ms: number) {
   if (!Number.isFinite(ms) || ms < 0) return '0:00'
   const seconds = Math.floor(ms / 1000)
@@ -440,9 +510,17 @@ export function Player({
   useEffect(() => { localStorage.setItem('lyrigen-reduced-motion', String(reducedMotion)) }, [reducedMotion])
   const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadataForTrack} onPlay={recordPlay} onPause={handlePauseAndSaveResume} onEnded={handleEnded} />
 
+  const drag = useDraggableBar(isMini || inAppMini)
+
   if (isMini || inAppMini) {
     return (
-      <div className={`mini-player ${inAppMini ? 'in-app-mini' : ''}`} ref={setVisualTarget}>
+      <div
+        className={`mini-player ${inAppMini ? 'in-app-mini' : ''} ${drag.placed ? 'is-placed' : ''}`}
+        ref={node => { setVisualTarget(node); drag.ref.current = node }}
+        style={drag.style}
+        onDoubleClick={event => { if (!(event.target as HTMLElement).closest('button, input')) drag.reset() }}
+        title="Drag to move · double-click to recentre"
+      >
         <div className="mini-seek">
           <input
             type="range"

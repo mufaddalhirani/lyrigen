@@ -1,0 +1,30 @@
+import { _electron as electron } from 'playwright'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+const root = process.argv[2], out = process.argv[3] || '.'
+const profile = mkdtempSync(path.join(tmpdir(), 'lyrigen-drag-'))
+writeFileSync(path.join(profile, 'lyrigen-state.json'), JSON.stringify({ schemaVersion:3, libraryRoots:[root], playlists:[], favorites:[], ratings:{}, playHistory:[], resumePositions:{}, queue:{currentTrackId:null,upcomingTrackIds:[],shuffle:false,repeat:'off',autoplay:true}, settings:{visualMode:'balanced',lyricFontSize:1,lyricDensity:'comfortable',crossfade:false}, remoteCache:{}, migration:{importedLegacy:false,importedAt:null} }))
+const app = await electron.launch({ args:['.','--no-sandbox'], cwd: process.cwd(), env:{...process.env, LYRIGEN_USER_DATA: profile} })
+const win = await app.firstWindow()
+await win.waitForLoadState('domcontentloaded'); await win.setViewportSize({width:1400,height:860}); await win.waitForTimeout(7000)
+await win.locator('.nav button', { hasText: 'Library' }).first().click({ force: true }); await win.waitForTimeout(1200)
+await win.locator('button', { hasText: /^Songs$/ }).first().click({ force: true }).catch(()=>{}); await win.waitForTimeout(2000)
+const row = win.locator('.track-row').first()
+await row.dblclick({ force: true }).catch(() => row.click({ force: true }))
+await win.waitForTimeout(3000)
+await win.locator('[aria-label="Mini player"]').first().click({ force: true }); await win.waitForTimeout(1200)
+const before = await win.evaluate(() => { const b = document.querySelector('.mini-player').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top) } })
+// drag from the identity area (not a button)
+const bar = win.locator('.mini-player')
+const box = await bar.boundingBox()
+await win.mouse.move(box.x + box.width / 2, box.y + box.height - 12)
+await win.mouse.down()
+await win.mouse.move(box.x + box.width / 2 - 340, box.y - 260, { steps: 14 })
+await win.mouse.up()
+await win.waitForTimeout(700)
+const after = await win.evaluate(() => { const b = document.querySelector('.mini-player').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), saved: localStorage.getItem('lyrigen-mini-position') } })
+console.log('before:', JSON.stringify(before)); console.log('after :', JSON.stringify(after))
+console.log('moved:', before.x !== after.x || before.y !== after.y ? 'YES' : 'NO')
+await win.screenshot({ path: path.join(out, 'drag-moved.png') })
+await app.close()

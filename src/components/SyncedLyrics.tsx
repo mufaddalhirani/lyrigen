@@ -12,16 +12,19 @@ interface Props { lines: LyricLine[]; audioRef: RefObject<HTMLAudioElement>; pla
  * recovered from the DOM: find the word element under the pointer, then take
  * its position among that line's word elements. The renderer emits one element
  * per entry in `line.words`, but drops whitespace-only entries, so the
- * non-blank words are used whenever the counts disagree. Anything unexpected
+ * non-blank words are used whenever the counts disagree. The renderer wraps
+ * each word in `emphasizeWrapper` (the inner span carries the mask gradient
+ * that does the sung-word wipe); its class names are content-hashed, hence the
+ * substring match. Anything unexpected
  * falls back to the start of the line, which is the old behaviour.
  */
 function wordTimeAt(event: MouseEvent, line: LyricLine) {
   try {
     const point = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null
-    const wordEl = point?.closest<HTMLElement>('[class*="wordBody"]')
+    const wordEl = point?.closest<HTMLElement>('[class*="emphasizeWrapper"]')
     const lineEl = wordEl?.closest<HTMLElement>('[class*="lyricMainLine"], [class*="lyricLine"]')
     if (!wordEl || !lineEl) return line.startTime
-    const wordEls = Array.from(lineEl.querySelectorAll<HTMLElement>('[class*="wordBody"]'))
+    const wordEls = Array.from(lineEl.querySelectorAll<HTMLElement>('[class*="emphasizeWrapper"]'))
     const index = wordEls.indexOf(wordEl)
     if (index < 0) return line.startTime
     const words = wordEls.length === line.words.length ? line.words : line.words.filter(word => word.word.trim())
@@ -32,8 +35,30 @@ function wordTimeAt(event: MouseEvent, line: LyricLine) {
   }
 }
 
+
+/**
+ * The lyric motion chosen in Sound Lab, read from `<html data-lyric-motion>`.
+ *
+ * Blur and scale are handled by the renderer itself rather than by CSS: its
+ * class names are content-hashed and nest (`lyricLineWrapper` inside
+ * `lyricLine` inside `lyricMainLine`), so a `[class*="lyricLine"]` blur rule
+ * applies several times over and turns the whole stage to soup. These props
+ * are the supported way in.
+ */
+function useLyricMotion() {
+  const [motion, setMotion] = useState(() => document.documentElement.dataset.lyricMotion || 'glow')
+  useEffect(() => {
+    const observer = new MutationObserver(() => setMotion(document.documentElement.dataset.lyricMotion || 'glow'))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-lyric-motion'] })
+    return () => observer.disconnect()
+  }, [])
+  return motion
+}
+
 export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playing, offsetMs, visible, reducedMotion, onSeek }: Props) {
   const ref = useRef<LyricPlayerRef>(null)
+  const motion = useLyricMotion()
+  const still = motion === 'none' || reducedMotion
   const wake = useRef<() => void>(() => undefined)
   const [browsing, setBrowsing] = useState(false)
   const sync = useCallback((seek = false) => {
@@ -84,7 +109,7 @@ export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playin
   }, [audioRef, lines, offsetMs, playing, reducedMotion, sync, visible])
 
   return <div className="synced-lyrics" aria-label="Synced lyrics" hidden={!visible}>
-    <LyricPlayer ref={ref} className="synced-lyrics-stage" lyricLines={lines} disabled playing={playing} alignAnchor="center" alignPosition={0.5} enableSpring={false} enableBlur={false} enableScale={!reducedMotion} wordFadeWidth={0.5} onLyricLineClick={event => {
+    <LyricPlayer ref={ref} className="synced-lyrics-stage" lyricLines={lines} disabled playing={playing} alignAnchor="center" alignPosition={0.5} enableSpring={!still} enableBlur={motion === 'blur' && !reducedMotion} enableScale={!still} wordFadeWidth={still ? 1 : 0.45} onLyricLineClick={event => {
       const line = lines[event.lineIndex]
       if (!line) return
       onSeek(Math.max(0, wordTimeAt(event, line) - offsetMs))

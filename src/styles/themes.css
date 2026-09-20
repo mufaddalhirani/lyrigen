@@ -125,7 +125,7 @@ html[data-theme="paper"] .discover-hero p, html[data-theme="paper"] .tool-hero p
 html[data-theme="paper"] .ghost-button, html[data-theme="paper"] .inline-glass-button { border-color: rgba(20,16,12,.2); background: rgba(20,16,12,.04); color: #322e29; }
 html[data-theme="paper"] .ghost-button:hover { background: rgba(20,16,12,.09); }
 html[data-theme="paper"] .synced-lyrics { --amll-lp-color: #221f1b; --amll-lp-hover-bg-color: rgba(0, 0, 0, .06); }
-html[data-theme="paper"] .synced-lyrics [class*="wordBody"]:hover { background: rgba(0, 0, 0, .1); }
+html[data-theme="paper"] .synced-lyrics [class*="emphasizeWrapper"]:hover { background: rgba(0, 0, 0, .1); }
 html[data-theme="paper"] .player-shell { background: var(--bg) !important; }
 html[data-theme="paper"] .background-veil { background: linear-gradient(120deg, rgba(244, 241, 236, .94), rgba(244, 241, 236, .8)); }
 html[data-theme="paper"] .mini-player { background: rgba(255, 255, 255, .86); }
@@ -149,23 +149,20 @@ html[data-theme="monochrome"] .hero-artwork img,
 html[data-theme="monochrome"] .mini-cover { filter: grayscale(1); }
 
 /* ---------- Lyric motion ---------- */
+/*
+ * Blur and scale are the renderer's own props, set in SyncedLyrics — CSS
+ * cannot do it here because the hashed class names nest, so a substring
+ * selector applies the same filter three times over. What is left for CSS is
+ * the part the renderer has no opinion about: the glow on the sung line.
+ */
 
-html[data-lyric-motion="scale"] .synced-lyrics { --amll-lp-font-size: clamp(18px, 2.4vw, 30px); }
-html[data-lyric-motion="scale"] .synced-lyrics [class*="lyricLine"] { transition: transform .28s ease, opacity .28s ease; }
-
-html[data-lyric-motion="blur"] .synced-lyrics [class*="lyricLine"]:not([class*="active"]) {
-  filter: blur(2.2px);
-  opacity: .5;
-  transition: filter .3s ease, opacity .3s ease;
+html[data-lyric-motion="glow"] .synced-lyrics [class*="lyricMainLine"] {
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-html[data-lyric-motion="glow"] .synced-lyrics [class*="lyricLine"][class*="active"] {
-  text-shadow: 0 0 26px color-mix(in srgb, var(--accent) 55%, transparent);
-}
+html[data-lyric-motion="scale"] .synced-lyrics { --amll-lp-font-size: clamp(21px, 3vw, 38px); }
 
-/* "Still" removes the per-line motion entirely — cheapest option on a weak GPU. */
-html[data-lyric-motion="none"] .synced-lyrics [class*="lyricLine"] {
+html[data-lyric-motion="none"] .synced-lyrics * {
   transition: none !important;
-  filter: none !important;
-  text-shadow: none !important;
+  animation: none !important;
 }
