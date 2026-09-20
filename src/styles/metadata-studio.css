@@ -65,7 +65,14 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* Stay put while the file list scrolls beside it — the panel describes the
+     focused file, so following the list out of view is useless. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: calc(100vh - 210px);
 }
+.studio-review > *:last-child { overflow: auto; }
 
 .studio-list-head {
   display: flex;

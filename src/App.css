@@ -85,3 +85,18 @@
 
 /* Appearance picker (Sound Lab) */
 .appearance-panel{margin-top:22px;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--elevated)}.appearance-head h4{margin:8px 0 6px;font-size:20px;font-weight:500}.appearance-head p{margin:0 0 6px;max-width:520px;color:var(--muted);font-size:11px;line-height:1.55}.appearance-row{padding:16px 0;border-top:1px solid var(--line)}.appearance-label{display:grid;gap:3px;margin-bottom:10px}.appearance-label strong{font-size:12px;font-weight:600}.appearance-label small{color:var(--muted);font-size:10px}.appearance-options{display:flex;flex-wrap:wrap;gap:7px}.appearance-chip{display:inline-flex;align-items:center;gap:7px;height:33px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.04);color:var(--soft);font-size:11px;transition:background .13s ease,border-color .13s ease}.appearance-chip:hover{background:rgba(255,255,255,.09)}.appearance-chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);color:#fff}.appearance-chip i{width:13px;height:13px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:var(--accent)}.appearance-chip.theme-nocturne i{background:#d99baa}.appearance-chip.theme-spotlight i{background:#fff}.appearance-chip.theme-lucid i{background:#7fd1e8}.appearance-chip.theme-ember i{background:#e0a066}.appearance-chip.theme-paper i{background:#f4f1ec}.appearance-chip.theme-monochrome i{background:#b9b9bd}.appearance-hint{margin:9px 0 0;color:var(--muted);font-size:10px}
+/* Sliders and selects: the native Windows controls clash badly with the rest
+   of the UI, so every range and dropdown gets the same treatment. Range tracks
+   are painted with a gradient stop at --progress where the component sets it. */
+input[type="range"]{-webkit-appearance:none;appearance:none;height:16px;margin:0;background:transparent;cursor:pointer}
+input[type="range"]::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:linear-gradient(90deg,var(--accent) var(--progress,0%),rgba(255,255,255,.14) var(--progress,0%))}
+input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-4.5px;border:0;border-radius:50%;background:var(--accent-strong);box-shadow:0 1px 5px rgba(0,0,0,.45);transition:transform .12s ease}
+input[type="range"]:hover::-webkit-slider-thumb{transform:scale(1.18)}
+input[type="range"]:active::-webkit-slider-thumb{transform:scale(1.05)}
+input[type="range"]:focus-visible::-webkit-slider-thumb{outline:2px solid var(--accent-strong);outline-offset:2px}
+/* Vertical EQ sliders keep the same skin. */
+.eq-grid input[type="range"]{width:16px}
+.eq-grid input[type="range"]::-webkit-slider-runnable-track{width:4px;height:100%;background:rgba(255,255,255,.14)}
+select{appearance:none;-webkit-appearance:none;padding-right:26px;border:1px solid var(--line);border-radius:8px;background-color:var(--elevated);background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 14px) 52%,calc(100% - 9px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;color:var(--soft)}
+select:hover{border-color:var(--accent)}
+select option{background:var(--elevated);color:var(--soft)}

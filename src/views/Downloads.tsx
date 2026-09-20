@@ -113,6 +113,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
   const updateYtDlp = async () => { setUpdating(true); const result = await window.electronAPI.updateYtDlp(); setUpdating(false); flash(result.message); setTools(await window.electronAPI.getToolsStatus()) }
 
   const activeJobs = useMemo(() => jobs.filter(job => ACTIVE.includes(job.status)), [jobs])
+  const failedJobs = useMemo(() => jobs.filter(job => job.status === 'error'), [jobs])
   const finishedJobs = useMemo(() => jobs.filter(job => !ACTIVE.includes(job.status)).sort((left, right) => String(right.finishedAt).localeCompare(String(left.finishedAt))), [jobs])
   const templateExample = useMemo(() => {
     if (!settings) return ''
@@ -177,7 +178,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
         </div>}
 
         <div className="tool-panel">
-          <div className="tool-panel-head"><strong>Queue</strong><div className="row"><span>{activeJobs.length} active · {finishedJobs.length} finished</span>{activeJobs.length > 0 && <button className="mini-button" onClick={() => void window.electronAPI.setDownloadsPaused(!paused).then(setPaused)}>{paused ? 'Resume' : 'Pause'}</button>}{finishedJobs.length > 0 && <button className="mini-button" onClick={() => void window.electronAPI.clearFinishedDownloads()}>Clear finished</button>}</div></div>
+          <div className="tool-panel-head"><strong>Queue</strong><div className="row"><span>{activeJobs.length} active · {finishedJobs.length} finished</span>{activeJobs.length > 0 && <button className="mini-button" onClick={() => void window.electronAPI.setDownloadsPaused(!paused).then(setPaused)}>{paused ? 'Resume' : 'Pause'}</button>}{failedJobs.length > 0 && <button className="mini-button" onClick={() => void Promise.all(failedJobs.map(job => window.electronAPI.retryDownload(job.id)))}>Retry all failed ({failedJobs.length})</button>}{finishedJobs.length > 0 && <button className="mini-button" onClick={() => void window.electronAPI.clearFinishedDownloads()}>Clear finished</button>}</div></div>
           <div className="queue-list">
             {[...activeJobs, ...finishedJobs].map(job => {
               const indeterminate = ['inspecting', 'tagging', 'lyrics', 'organizing', 'converting'].includes(job.status)

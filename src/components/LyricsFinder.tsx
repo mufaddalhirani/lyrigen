@@ -172,8 +172,8 @@ export function LyricsFinder({ track, onClose, onApply, onSaved }: Props) {
       <div className="finder-foot">
         <p>{message || (track.hasLyricFile ? 'This song already has a lyric file; saving will ask before replacing it.' : 'Saving writes a .ttml / .lrc / .txt beside the song so it loads offline next time.')} Lyrics from Better Lyrics (better-lyrics.boidu.dev), Unison (unison.boidu.dev), the AMLL TTML DB and LRCLIB.</p>
         <div className="row">
-          {onApply && <button className="ghost-button" disabled={!preview} onClick={() => { if (preview && selected) { onApply(preview.content, preview.format, selected.sourceLabel); onClose() } }}>Use now</button>}
-          <button className="accent-button" disabled={!preview || saving} onClick={() => void save()}>{saving ? 'Saving…' : `Save ${preview ? (preview.format === 'plain' ? '.txt' : `.${preview.format}`) : 'lyrics'} beside song`}</button>
+          {onApply && <button className="ghost-button" disabled={!preview || !lines.length} onClick={() => { if (preview && selected) { onApply(preview.content, preview.format, selected.sourceLabel); onClose() } }}>Use now</button>}
+          <button className="accent-button" disabled={!preview || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Use these lyrics'}</button>
         </div>
       </div>
     </section>

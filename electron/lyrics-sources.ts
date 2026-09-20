@@ -584,6 +584,10 @@ export async function findBestLyrics(request: LyricLookupRequest): Promise<Lyric
         if (!fetched?.content?.trim()) continue
         // A search result only *claims* a granularity; the document proves it.
         const sync = fetched.format === 'ttml' ? ttmlGranularity(fetched.content) : candidate.syncType
+        // A document can be well-formed and still contain nothing usable.
+        // Counting the lines here keeps "found lyrics" from meaning an empty
+        // pane in the player.
+        if (!lyricLines(fetched.content, fetched.format).length) { console.warn(`${candidate.id} parsed to zero lines; skipping`); continue }
         resolved.push({ candidate: { ...candidate, syncType: sync }, content: fetched.content, format: fetched.format })
         // Stop once nothing still unfetched would outrank what we already hold.
         const holding = resolved.map(item => item.candidate).sort(order)[0]
