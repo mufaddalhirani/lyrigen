@@ -6,7 +6,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the app is built, how
 
 ## Start listening
 
-1. Build it: `npm install`, then `npm run build` — that produces `release\Lyrigen Setup 2.0.0.exe` (installs properly, with a Start Menu shortcut and uninstaller) and `release\Lyrigen-Portable-2.0.0.exe` (runs with no install). Use `npm run build:dir` for just an unpacked `release\win-unpacked\Lyrigen.exe`, or `npm run dev` while working on the code.
+1. Build it: `npm install`, then `npm run build`. That produces an installer (Start Menu shortcut and uninstaller) and a portable `.exe` in `release\`, both named with the current version. Use `npm run build:dir` for just an unpacked `release\win-unpacked\Lyrigen.exe`, or `npm run dev` while working on the code.
+
+   To cut a new version, use `npm run release:patch` (fixes), `release:minor` (features) or `release:major`. Each bumps the version, deletes the previous artifacts and rebuilds, so `release\` only ever holds one installer and one portable — which is what makes two builds tellable apart.
 2. Choose the one main folder that contains your music.
 3. Lyrigen remembers it and scans every folder beneath it whenever the app opens.
 
@@ -44,7 +46,7 @@ Lyrics come from four free sources, and Lyrigen always keeps the **best-timed** 
 
 Selection is by timing granularity first (syllable → word → line → plain), then match quality, then source. A line-synced LRCLIB hit can no longer beat word-synced TTML for the same song. The granularity is verified by reading the fetched document, not trusted from the search result.
 
-**About the Better Lyrics cache.** Its API serves anything already cached with no key, and Lyrigen falls straight through to Unison → AMLL → LRCLIB when a song isn't. Keys are not currently being issued (each cache miss costs them a paid upstream lookup), so leave that setting empty. If a song you want isn't covered, play it once on YouTube Music with the Better Lyrics extension — that primes the cache, and Lyrigen picks it up from then on.
+**About the Better Lyrics cache.** Its API serves anything already cached with no key, and Lyrigen falls straight through to Unison → AMLL → LRCLIB when a song isn't. Keys are not currently being issued (each cache miss costs them a paid upstream lookup), so leave that setting empty. Their docs suggest playing a song in the Better Lyrics extension primes the cache; in testing that did not hold — songs played in the extension still came back as cache misses — so treat it as unreliable. For songs no source covers word-synced, run local forced alignment (see `scripts/align_lyrics.py`) to generate real word timing from line-synced lyrics.
 
 Lyrics are saved **twice, on purpose**: as a `.ttml`/`.lrc` file beside the song, which keeps word-by-word timing and is what Lyrigen reads, and **inside the audio file's own tags** so any other player shows them too (ID3 `USLT` + `SYLT` for MP3; a `lyrics` tag for M4A, FLAC and Opus, written by an ffmpeg stream copy — no re-encode, no quality loss). They are fetched once and kept, so playing a song again never re-downloads them. Both can be switched off per screen.
 
