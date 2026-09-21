@@ -279,3 +279,39 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 
 /* Home: two calls to action side by side rather than one. */
 .hero-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+
+/* Settings */
+.settings-page{display:grid;gap:18px}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px;align-items:start}
+.settings-card{padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--elevated)}
+.settings-card-head{margin-bottom:12px}
+.settings-card-head h4{margin:7px 0 0;font-size:16px;font-weight:550}
+.settings-note{margin:0 0 12px;color:var(--muted);font-size:11px;line-height:1.6}
+.settings-roots{display:grid;gap:5px;margin-bottom:11px}
+.settings-roots div{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.03)}
+.settings-roots span{flex:1;min-width:0;overflow:hidden;color:var(--soft);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.settings-roots button{padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--muted);font-size:10px}
+.settings-roots button:hover{border-color:var(--accent);color:#fff}
+.settings-actions{display:flex;flex-wrap:wrap;gap:7px}
+.settings-links{margin:0;padding-left:16px;color:var(--muted);font-size:11px;line-height:1.8}
+.settings-links b{color:var(--soft);font-weight:600}
+.settings-facts{display:grid;gap:7px;margin:0 0 13px}
+.settings-facts div{display:flex;justify-content:space-between;gap:12px}
+.settings-facts dt{color:var(--muted);font-size:10.5px}
+.settings-facts dd{margin:0;overflow:hidden;max-width:62%;color:var(--soft);font:10px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+/* The toggle rows carry real explanations, so they need room to breathe.
+   They also need their own surface: .setting-toggle was written for the
+   player's settings drawer, where an ancestor rule supplies the background.
+   Outside it, a <button> falls back to the platform default — a white box
+   with white text on it. */
+.settings-card .setting-toggle{width:100%;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.04);color:var(--soft)}
+.settings-card .setting-toggle:hover{background:rgba(255,255,255,.08)}
+.settings-card .setting-toggle.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.settings-card .setting-toggle strong{color:var(--text,#f5f1f4);font-size:12px}
+.settings-card .setting-toggle small{color:var(--muted);font-size:10.5px}
+.settings-card .setting-toggle i{width:30px;height:17px;border-radius:20px;background:#4a4352;transition:background .14s ease}
+.settings-card .setting-toggle.on i{background:var(--accent)}
+
+.settings-card .setting-toggle{align-items:flex-start;gap:12px}
+.settings-card .setting-toggle small{display:block;margin-top:4px;line-height:1.55}
+.settings-card .setting-toggle i{flex:0 0 auto;margin-top:3px}

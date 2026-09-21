@@ -60,6 +60,19 @@ The **Listening** screen keeps a recap for the last week, month, year, or all ti
 
 Plays are counted once per track per play, so hours listened treats each play as a full listen.
 
+## Settings
+
+**Settings** in the sidebar covers how the app behaves:
+
+- **When Lyrigen opens** — start playing automatically (off by default), resume where you left off, rescan folders on launch.
+- **Lyrics** — look up lyrics automatically for songs that have none.
+- **Window** — keep running in the tray when closed, and reduced motion.
+- **Safety** — confirm before the Organizer moves anything.
+- **Library folders** — add or remove the folders Lyrigen scans. Removing one only stops it being scanned; no files are deleted.
+- **Data** — clear play history or resume positions, reset the window size, open the data folder.
+
+Settings that belong to one feature stay with it — download options in Downloads, themes in Sound Lab, EQ on the player — and are linked from Settings rather than duplicated, so there is only ever one of each.
+
 ## Suggestions
 
 Home builds four shelves from your own library and play counts — no service, no account, nothing leaves the machine:

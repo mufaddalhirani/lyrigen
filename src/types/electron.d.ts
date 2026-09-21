@@ -202,6 +202,26 @@ interface CatalogResult {
   payload?: unknown
 }
 
+/** App-level preferences, stored in the persisted `settings` bag. */
+interface AppSettings {
+  /** Start playing the last track automatically when Lyrigen opens. */
+  autoplayOnStartup: boolean
+  /** Pick each track up where you stopped, rather than from the beginning. */
+  resumePlayback: boolean
+  /** Rescan library folders on launch instead of trusting the cache. */
+  rescanOnStartup: boolean
+  /** Closing the window leaves Lyrigen running in the tray. */
+  closeToTray: boolean
+  /** Fetch lyrics automatically for a track that has none. */
+  autoFetchLyrics: boolean
+  /** Turn off ambient and per-line animation everywhere. */
+  reducedMotion: boolean
+  /** Confirm before the Organizer moves anything. */
+  confirmDestructive: boolean
+}
+
+interface AppInfo { version: string; electron: string; dataFolder: string; platform: string }
+
 interface SettingsState {
   visualMode: string
   lyricFontSize: number
@@ -387,6 +407,11 @@ interface ElectronAPI {
   getResumePosition: (trackId: string) => Promise<number | null>
   getSettings: () => Promise<SettingsState>
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
+  clearPlayHistory: () => Promise<{ cleared: number }>
+  clearResumePositions: () => Promise<{ cleared: number }>
+  resetWindowBounds: () => Promise<boolean>
+  openDataFolder: () => Promise<string>
+  getAppInfo: () => Promise<AppInfo>
   importLegacyState: (legacy: { rootPath?: string | null; playlist?: unknown; genres?: unknown; listeningStats?: unknown; visualMode?: string | null }) => Promise<void>
   searchCatalog: (query: { title?: string; artist?: string; album?: string; sources?: string[] }) => Promise<CatalogResult[]>
   getCachedCatalogResults: (key?: string) => Promise<CatalogResult[]>

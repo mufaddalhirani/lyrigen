@@ -1073,6 +1073,46 @@ ipcMain.handle('save-resume-position', (_event, trackId: string, positionMs: num
 })
 ipcMain.handle('get-resume-position', (_event, trackId: string) => getStateStore().get().resumePositions[trackId] ?? null)
 ipcMain.handle('get-settings', () => getStateStore().get().settings)
+
+/**
+ * Maintenance actions for the Settings screen.
+ *
+ * Each one is destructive in a small, named way, so the UI asks first and the
+ * handler just does what it says. Nothing here touches your audio files.
+ */
+ipcMain.handle('clear-play-history', () => {
+  const before = getStateStore().get().playHistory.length
+  getStateStore().update(state => { state.playHistory = [] })
+  libraryCache = null
+  return { cleared: before }
+})
+
+ipcMain.handle('clear-resume-positions', () => {
+  const before = Object.keys(getStateStore().get().resumePositions).length
+  getStateStore().update(state => { state.resumePositions = {} })
+  return { cleared: before }
+})
+
+/** Forget the saved window size so the next launch starts fresh. */
+ipcMain.handle('reset-window-bounds', () => {
+  getStateStore().update(state => { delete state.windowBounds })
+  if (win) win.setBounds(screen.getDisplayMatching(win.getBounds()).workArea)
+  return true
+})
+
+/** Where the app keeps its state, for anyone who wants to look or back it up. */
+ipcMain.handle('open-data-folder', async () => {
+  await shell.openPath(app.getPath('userData'))
+  return app.getPath('userData')
+})
+
+ipcMain.handle('get-app-info', () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  dataFolder: app.getPath('userData'),
+  platform: process.platform,
+}))
+
 ipcMain.handle('update-settings', (_event, settings: Record<string, unknown>) => getStateStore().update(state => { state.settings = { ...state.settings, ...settings } }).settings)
 ipcMain.handle('import-legacy-state', (_event, legacy: { rootPath?: string | null; playlist?: unknown; genres?: unknown; listeningStats?: unknown; visualMode?: string | null }) => {
   getStateStore().update(state => {
@@ -1503,4 +1543,15 @@ ipcMain.on('window-set-mini', (_event, enabled: boolean) => {
   win.webContents.send('mini-mode-changed', isMini)
 })
 
-ipcMain.on('window-close', () => win?.close())
+/**
+ * Closing hides to the tray when asked, rather than quitting.
+ *
+ * Playback carries on, and the tray menu is the way back or out. Default is a
+ * real close: a window that refuses to shut is a nasty surprise for anyone who
+ * has not opted in.
+ */
+ipcMain.on('window-close', () => {
+  if (!win) return
+  const closeToTray = Boolean(getStateStore().get().settings.closeToTray)
+  if (closeToTray) { win.hide(); createTray() } else win.close()
+})
