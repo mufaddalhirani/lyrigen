@@ -320,3 +320,23 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 .cookie-status{margin:7px 0 0;font-size:10.5px;line-height:1.55}
 .cookie-status.ok{color:var(--success)}
 .cookie-status.bad{color:var(--accent-strong)}
+
+/* Duplicate indicator (Downloads) and cleanup (Smart Library) */
+.chip.dupe{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent);color:#fff}
+.dupe-note{margin:0 0 4px;color:var(--muted);font-size:10.5px;line-height:1.6}
+.dupe-cleanup{margin-bottom:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--elevated)}
+.dupe-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.dupe-head h4{margin:7px 0 6px;font-size:16px;font-weight:550}
+.dupe-head p{max-width:560px;margin:0;color:var(--muted);font-size:11px;line-height:1.6}
+.dupe-head b{color:var(--soft)}
+.dupe-groups{display:grid;gap:9px;margin-top:16px;max-height:44vh;overflow-y:auto}
+.dupe-group{padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.025)}
+.dupe-group.skipped{opacity:.45}
+.dupe-group-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:7px}
+.dupe-group-head strong{overflow:hidden;font-size:12px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+.dupe-file{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11px}
+.dupe-file span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dupe-file em{flex:0 0 auto;color:var(--muted);font:9.5px var(--mono);font-style:normal}
+.dupe-file.keep{color:var(--success)}
+.dupe-file.remove{color:var(--muted)}
+.dupe-file.remove span{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.28)}

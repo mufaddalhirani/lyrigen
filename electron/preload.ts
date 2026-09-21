@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getResumePosition: (trackId: string) => ipcRenderer.invoke('get-resume-position', trackId),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   updateSettings: (settings: unknown) => ipcRenderer.invoke('update-settings', settings),
+  planDuplicateCleanup: () => ipcRenderer.invoke('plan-duplicate-cleanup'),
+  trashFiles: (paths: string[]) => ipcRenderer.invoke('trash-files', paths),
   inspectCookiesFile: (filePath: string) => ipcRenderer.invoke('inspect-cookies-file', filePath),
   chooseCookiesFile: () => ipcRenderer.invoke('choose-cookies-file'),
   clearPlayHistory: () => ipcRenderer.invoke('clear-play-history'),

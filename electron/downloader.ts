@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import { app } from 'electron'
 import { buildRelativePath, parseSongName, primaryArtist, stripYoutubeIdSuffix, uniquePath, PATH_PRESETS, type SongVariant } from './song-naming'
-import { downloadAudio, embedLyrics, inspectUrl, isCookieDecryptError, isOfflineError, isRetryableYtDlpError, needsCookies, probe, setCookieSource, writeTags, type AudioFormat, type AudioQuality, type CookieSource, type DownloadProgress, type LyricEmbedOutcome, type VideoInfo } from './media-tools'
+import { downloadAudio, embedLyrics, inspectUrl, isChromiumBrowser, isCookieDecryptError, isCookieLockedError, isOfflineError, isRetryableYtDlpError, needsCookies, probe, setCookieSource, writeTags, type AudioFormat, type AudioQuality, type CookieSource, type DownloadProgress, type LyricEmbedOutcome, type VideoInfo } from './media-tools'
 import { findBestLyrics, lyricExtension, lyricLines, lyricsToPlainText, retimeLyrics, type LyricFormat, type LyricLookupResult } from './lyrics-sources'
 
 /**
@@ -598,7 +598,19 @@ export class Downloader {
       const offline = isOfflineError(message)
       // A sign-in wall fails the same way forever, so say what to do about it
       // rather than retrying into the same error three more times.
-      if (isCookieDecryptError(message)) {
+      if (isCookieLockedError(message)) {
+        // Closing the browser clears the lock, but a Chromium one then fails to
+        // decrypt, so saying "close it and retry" on its own wastes a trip.
+        const chromium = isChromiumBrowser(this.state.settings.cookieSource)
+        this.update(job, {
+          status: 'error',
+          stage: 'Browser is holding its cookies',
+          error: chromium
+            ? 'That browser has its cookie database open, so yt-dlp cannot read it. Closing it clears that, but Chromium browsers (Chrome, Edge, Brave, Opera GX) then refuse to decrypt the cookies anyway — export a cookies.txt instead and set it in Downloads settings.'
+            : 'That browser has its cookie database open. Close it completely, including anything left in the system tray, and try again.',
+          finishedAt: new Date().toISOString(), speed: null, eta: null,
+        })
+      } else if (isCookieDecryptError(message)) {
         this.update(job, { status: 'error', stage: 'Cookies could not be read', error: 'Windows would not decrypt that browser’s cookies. Chromium 127+ (Chrome, Edge, Opera GX, Brave) locks its cookie store so yt-dlp cannot read it. Use Firefox, or export a cookies.txt file and point Downloads settings at it.', finishedAt: new Date().toISOString(), speed: null, eta: null })
       } else if (needsCookies(message)) {
         this.update(job, { status: 'error', stage: 'Sign-in required', error: 'YouTube asked this download to prove it is not a bot. It only clears with a signed-in session: export a cookies.txt while logged into YouTube and set it in Downloads settings. The browser dropdown works for Firefox, but Chromium browsers (Chrome, Edge, Brave, Opera GX) encrypt their cookie store and cannot be read.', finishedAt: new Date().toISOString(), speed: null, eta: null })

@@ -1072,6 +1072,72 @@ ipcMain.handle('save-resume-position', (_event, trackId: string, positionMs: num
   getStateStore().update(state => { state.resumePositions[trackId] = Math.max(0, Math.round(positionMs)) })
 })
 ipcMain.handle('get-resume-position', (_event, trackId: string) => getStateStore().get().resumePositions[trackId] ?? null)
+/**
+ * Duplicate cleanup.
+ *
+ * Grouping is by title plus exact file size, the same rule the library scan
+ * uses to flag `possibleDuplicate` — two files that agree on both are the same
+ * recording rather than a cover or a remaster.
+ *
+ * One file in each group is always kept, and the choice is not arbitrary: a
+ * copy with lyrics beside it beats one without, then the shorter path, which
+ * favours the organised location over a loose download folder. Everything else
+ * goes to the Recycle Bin rather than being unlinked, so a wrong call costs a
+ * restore instead of the file.
+ */
+interface DuplicateGroup {
+  key: string
+  title: string
+  keep: { path: string; reason: string }
+  remove: Array<{ path: string; size: number }>
+}
+
+function planDuplicateCleanup(): DuplicateGroup[] {
+  const items = libraryCache?.items ?? []
+  const groups = new Map<string, LibraryTrack[]>()
+  for (const item of items) {
+    if (!item.fileSize) continue
+    const key = `${item.title.toLocaleLowerCase()}|${item.fileSize}`
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
+  const plan: DuplicateGroup[] = []
+  for (const [key, tracks] of groups) {
+    if (tracks.length < 2) continue
+    const ranked = [...tracks].sort((left, right) => {
+      const lyrics = Number(Boolean(right.lyricPath)) - Number(Boolean(left.lyricPath))
+      if (lyrics) return lyrics
+      return left.audioPath.length - right.audioPath.length
+    })
+    const [keep, ...rest] = ranked
+    plan.push({
+      key,
+      title: keep.title,
+      keep: { path: keep.audioPath, reason: keep.lyricPath ? 'has lyrics beside it' : 'shortest path' },
+      remove: rest.map(track => ({ path: track.audioPath, size: track.fileSize })),
+    })
+  }
+  return plan.sort((left, right) => right.remove.length - left.remove.length)
+}
+
+ipcMain.handle('plan-duplicate-cleanup', () => planDuplicateCleanup())
+
+/** Send the chosen files to the Recycle Bin. Never unlinks. */
+ipcMain.handle('trash-files', async (_event, paths: string[]) => {
+  let trashed = 0
+  const failed: string[] = []
+  for (const target of paths) {
+    try {
+      await shell.trashItem(target)
+      trashed += 1
+    } catch (error) {
+      console.warn('Could not trash', target, error)
+      failed.push(path.basename(target))
+    }
+  }
+  libraryCache = null
+  return { trashed, failed }
+})
+
 ipcMain.handle('get-settings', () => getStateStore().get().settings)
 
 /** Say whether a cookies.txt actually holds a YouTube login, before yt-dlp tries it. */

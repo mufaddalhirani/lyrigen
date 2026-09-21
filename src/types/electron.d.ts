@@ -176,6 +176,13 @@ interface ListeningRecap {
   peakDay: { date: string; plays: number } | null
 }
 
+interface DuplicateGroup {
+  key: string
+  title: string
+  keep: { path: string; reason: string }
+  remove: Array<{ path: string; size: number }>
+}
+
 interface LibraryStats {
   tracks: number
   albums: number
@@ -407,6 +414,8 @@ interface ElectronAPI {
   getResumePosition: (trackId: string) => Promise<number | null>
   getSettings: () => Promise<SettingsState>
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
+  planDuplicateCleanup: () => Promise<DuplicateGroup[]>
+  trashFiles: (paths: string[]) => Promise<{ trashed: number; failed: string[] }>
   inspectCookiesFile: (filePath: string) => Promise<{ ok: boolean; message: string }>
   chooseCookiesFile: () => Promise<{ path: string; ok: boolean; message: string } | null>
   clearPlayHistory: () => Promise<{ cleared: number }>

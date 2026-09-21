@@ -162,6 +162,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
         {items.length > 0 && <div className="tool-panel">
           <div className="tool-panel-head"><strong>{playlistTitle ? `Playlist · ${playlistTitle}` : 'Ready to download'}</strong><span>{items.length} song{items.length === 1 ? '' : 's'} · check artist and title before queueing</span></div>
           <div className="inspect-footer">
+          {items.some(item => item.alreadyDownloaded) && <p className="dupe-note">{items.filter(item => item.alreadyDownloaded).length} of these {items.length} are already in your library. They are skipped on queueing unless you turn off "Skip songs already downloaded" in settings. <button className="text-link" onClick={() => setItems(current => current.filter(item => !item.alreadyDownloaded))}>Remove them from this list</button></p>}
             <p>{settings?.organize ? `Files go to ${settings.destination} using the "${presets.find(preset => preset.template === settings.pathTemplate)?.label ?? 'custom'}" layout.` : `Files go straight into ${settings?.destination}.`}{settings?.fetchLyrics ? ' Lyrics are fetched from Unison, then AMLL and LRCLIB.' : ''}</p>
             <button className="accent-button" disabled={!ready} onClick={() => void enqueueAll()}><Icon name="plus" size={15} /> Add {items.length} to queue</button>
           </div>
@@ -179,7 +180,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
                   {item.info.duration && <span className="chip">{prettyTime(item.info.duration)}</span>}
                   <em title={item.info.title}>“{item.info.title}” · {item.info.uploader || item.info.extractor}</em>
                 </div>
-                <div className="inspect-path">{item.alreadyDownloaded ? <>Already downloaded → <b>{item.alreadyDownloaded}</b></> : <>→ <b>{settings ? `${settings.destination}\\…\\` : ''}{item.proposedPath.split(/[\\/]/).slice(-3).join('\\')}</b></>}</div>
+                <div className="inspect-path">{item.alreadyDownloaded ? <><span className="chip dupe">Already downloaded</span> <b>{item.alreadyDownloaded}</b></> : <>→ <b>{settings ? `${settings.destination}\\…\\` : ''}{item.proposedPath.split(/[\\/]/).slice(-3).join('\\')}</b></>}</div>
               </div>
               <div className="inspect-actions">
                 <button className={previewing === item.videoId ? 'active' : ''} title={previewing === item.videoId ? 'Stop preview' : 'Preview the audio stream (ffplay)'} onClick={() => void preview(item)}><Icon name="play" size={16} /></button>

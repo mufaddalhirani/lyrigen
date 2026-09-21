@@ -365,6 +365,23 @@ export function inspectCookiesFile(filePath: string): { ok: boolean; message: st
   return { ok: true, message: `Signed-in session found (${found.length} auth cookie${found.length === 1 ? '' : 's'}).` }
 }
 
+/**
+ * yt-dlp could not copy the cookie database because the browser has it open
+ * (yt-dlp#7271).
+ *
+ * Worth separating from the decryption failure, because the advice differs —
+ * though for a Chromium browser both roads end in the same place: closing it
+ * gets past the lock, and the copy then fails to decrypt anyway.
+ */
+export function isCookieLockedError(message: string) {
+  return /could not copy .*cookie database|7271|database is locked|being used by another process/i.test(message)
+}
+
+/** Chromium forks all share the cookie store that Chromium 127+ locked down. */
+export function isChromiumBrowser(source: CookieSource) {
+  return ['chrome', 'edge', 'brave', 'opera', 'vivaldi', 'chromium'].includes(source)
+}
+
 /** The DPAPI failure is specific enough to explain properly rather than pass through raw. */
 export function isCookieDecryptError(message: string) {
   return /failed to decrypt with dpapi|dpapi|could not decrypt|app-?bound/i.test(message)
