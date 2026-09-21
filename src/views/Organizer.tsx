@@ -124,6 +124,13 @@ export function Organizer({ libraryRoots, flash }: { libraryRoots: string[]; fla
             {plan.length > 0 && <button className="mini-button" onClick={() => setPlan(current => current.map(item => ({ ...item, selected: item.metadata.confidence !== 'low' })))}>Confident only</button>}
           </div>
         </div>
+        <div className="inspect-footer">
+          <p>{plan.length ? 'Sidecar lyrics, covers and Lyrigen metadata move with each song. Undo puts the last batch back.' : 'Files are only ever moved, never deleted. Tag rewrites keep the audio stream untouched.'}</p>
+          <div className="row" style={{ display: 'flex', gap: 8 }}>
+            <button className="ghost-button" disabled={!sources.length || Boolean(scanning) || applying} onClick={() => void scan()}><Icon name="search" size={15} /> {scanning ? 'Scanning…' : plan.length ? 'Rescan' : 'Scan'}</button>
+            <button className="accent-button" disabled={!selectedCount || applying || Boolean(scanning)} onClick={() => void apply()}>{applying ? 'Moving…' : `Move ${selectedCount} file${selectedCount === 1 ? '' : 's'}`}</button>
+          </div>
+        </div>
         <div className="plan-table">
           {plan.length > 0 && <div className="plan-head"><span /><span>Current file</span><span>Detected song</span><span>Moves to</span></div>}
           {plan.map(item => {
@@ -144,13 +151,6 @@ export function Organizer({ libraryRoots, flash }: { libraryRoots: string[]; fla
           {!plan.length && <div className="tool-panel-empty">{scanning ? 'Reading files…' : sources.length ? 'Press Scan to see what would move.' : 'Choose one or more folders to start.'}</div>}
         </div>
         {scanning && <div className="progress-line"><span>Scanning {scanning.completed} / {scanning.total || '…'}</span><div className="bar"><i style={{ '--progress': `${scanning.total ? scanning.completed / scanning.total * 100 : 5}%` } as React.CSSProperties} /></div></div>}
-        <div className="inspect-footer">
-          <p>{plan.length ? 'Sidecar lyrics, covers and Lyrigen metadata move with each song. Undo puts the last batch back.' : 'Files are only ever moved, never deleted. Tag rewrites keep the audio stream untouched.'}</p>
-          <div className="row" style={{ display: 'flex', gap: 8 }}>
-            <button className="ghost-button" disabled={!sources.length || Boolean(scanning) || applying} onClick={() => void scan()}><Icon name="search" size={15} /> {scanning ? 'Scanning…' : plan.length ? 'Rescan' : 'Scan'}</button>
-            <button className="accent-button" disabled={!selectedCount || applying || Boolean(scanning)} onClick={() => void apply()}>{applying ? 'Moving…' : `Move ${selectedCount} file${selectedCount === 1 ? '' : 's'}`}</button>
-          </div>
-        </div>
       </div>
 
       <aside className="tool-panel">

@@ -139,6 +139,12 @@ interface QueueState {
   currentTrackId: string | null
   upcomingTrackIds: string[]
   historyTrackIds: string[]
+  /**
+   * Tracks queued by hand with "Play next" / "Play last". These play in the
+   * order they were asked for even when shuffle is on — an explicit request is
+   * not a suggestion.
+   */
+  manualTrackIds?: string[]
   shuffle: boolean
   repeat: 'off' | 'all' | 'one'
   autoplay: boolean
@@ -257,6 +263,8 @@ interface DownloadSettings extends DownloadOptions {
   /** Optional Better Lyrics API key. Without one only their cached songs answer. */
   betterLyricsApiKey: string | null
   cookieSource: 'none' | 'chrome' | 'edge' | 'firefox' | 'brave' | 'opera' | 'vivaldi' | 'chromium'
+  cookieProfile: string
+  cookieFile: string
   inboxFolder: string | null
   inboxEnabled: boolean
 }

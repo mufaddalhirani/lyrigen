@@ -83,7 +83,22 @@
 .inspect-actions button { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .04); color: #aaa2b1; }
 .inspect-actions button:hover { background: rgba(255, 255, 255, .1); color: #fff; }
 .inspect-actions button.active { color: var(--accent-strong); border-color: rgba(217, 155, 170, .5); }
-.inspect-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+/* The confirm action sticks to the top of its panel. It used to sit below the
+   list, so approving a 200-song plan meant scrolling past all 200 rows first.
+   Sticky keeps it in reach without moving it out of its own context. */
+.inspect-footer {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--elevated);
+  backdrop-filter: blur(14px);
+}
 .inspect-footer p { margin: 0; color: var(--muted); font-size: 11px; }
 
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 999px; font: 9.5px var(--mono); letter-spacing: .3px; background: rgba(255, 255, 255, .07); color: #c7c0ca; white-space: nowrap; }

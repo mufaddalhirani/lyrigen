@@ -5,6 +5,12 @@ export type QueueState = {
   currentTrackId: string | null
   upcomingTrackIds: string[]
   historyTrackIds: string[]
+  /**
+   * Tracks queued by hand with "Play next" / "Play last". They play in the
+   * order asked for even when shuffle is on — an explicit request is not a
+   * suggestion. Optional so state written by older builds still loads.
+   */
+  manualTrackIds?: string[]
   shuffle: boolean
   repeat: 'off' | 'all' | 'one'
   autoplay: boolean
@@ -32,6 +38,8 @@ export type PersistentState = {
   settings: Record<string, unknown>
   remoteCache: Record<string, { savedAt: string; source: string; payload: unknown }>
   migration: { importedLegacy: boolean; importedAt: string | null }
+  /** Last window size/position, so the app reopens where it was left. */
+  windowBounds?: { x: number; y: number; width: number; height: number; maximized: boolean }
 }
 
 const emptyQueue = (): QueueState => ({
@@ -41,6 +49,7 @@ const emptyQueue = (): QueueState => ({
   shuffle: false,
   repeat: 'off',
   autoplay: true,
+  manualTrackIds: [],
 })
 
 function defaultState(): PersistentState {

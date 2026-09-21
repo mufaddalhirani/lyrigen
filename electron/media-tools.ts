@@ -227,6 +227,11 @@ export async function writeTags(filePath: string, tags: TagSet, options: { cover
   args.push('-c:a', 'copy')
   if (!attachCover) args.push('-c:v', 'copy')
   if (ext === '.mp3') args.push('-id3v2_version', '3', '-write_id3v1', '1')
+  // ffmpeg picks the `ipod` muxer for .m4a, which only accepts AAC and ALAC.
+  // yt-dlp happily produces other codecs in an .m4a container, and those fail
+  // with "Could not write header (incorrect codec parameters?)". The plain mp4
+  // muxer takes them.
+  if (ext === '.m4a' || ext === '.mp4') args.push('-f', 'mp4')
   const set = (key: string, value: string | number | null | undefined) => { args.push('-metadata', `${key}=${value === null || value === undefined ? '' : String(value)}`) }
   if (tags.title !== undefined) set('title', tags.title)
   if (tags.artist !== undefined) set('artist', tags.artist)
@@ -300,11 +305,34 @@ export type CookieSource = 'none' | 'chrome' | 'edge' | 'firefox' | 'brave' | 'o
  * PC and Lyrigen never sees the cookies itself.
  */
 let cookieSource: CookieSource = 'none'
-export function setCookieSource(source: CookieSource) { cookieSource = source }
+let cookieProfile = ''
+let cookieFile = ''
+export function setCookieSource(source: CookieSource, profile = '', file = '') {
+  cookieSource = source
+  cookieProfile = profile.trim()
+  cookieFile = file.trim()
+}
 export function getCookieSource() { return cookieSource }
 
+/**
+ * How yt-dlp is told to authenticate.
+ *
+ * A cookies.txt file wins when one is set, because it is the only method that
+ * always works: Chromium 127+ encrypts its cookie store with App-Bound
+ * Encryption, and yt-dlp then fails with "Failed to decrypt with DPAPI"
+ * (yt-dlp#10927). Chromium forks like Opera GX also live outside the default
+ * search paths, so `--cookies-from-browser opera:<path>` takes an explicit
+ * profile directory.
+ */
 function authArgs() {
-  return cookieSource === 'none' ? [] : ['--cookies-from-browser', cookieSource]
+  if (cookieFile) return ['--cookies', cookieFile]
+  if (cookieSource === 'none') return []
+  return ['--cookies-from-browser', cookieProfile ? `${cookieSource}:${cookieProfile}` : cookieSource]
+}
+
+/** The DPAPI failure is specific enough to explain properly rather than pass through raw. */
+export function isCookieDecryptError(message: string) {
+  return /failed to decrypt with dpapi|dpapi|could not decrypt|app-?bound/i.test(message)
 }
 
 /**

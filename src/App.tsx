@@ -93,14 +93,21 @@ export default function App() {
     await updateQueue({ ...queueState, currentTrackId: track.id, upcomingTrackIds: remaining, historyTrackIds: source.slice(0, Math.max(0, index)).map(item => item.id) })
     setPlayerMode('full')
   }
-  const playNext = async (track: LibraryTrack) => { if (!currentTrack) return playTrack(track); await updateQueue({ ...queueState, upcomingTrackIds: [track.id, ...queueState.upcomingTrackIds.filter(id => id !== track.id && id !== currentTrack.id)] }); flash(`${track.title} will play next.`) }
-  const playLast = async (track: LibraryTrack) => { if (!currentTrack) return playTrack(track); await updateQueue({ ...queueState, upcomingTrackIds: [...queueState.upcomingTrackIds.filter(id => id !== track.id), track.id] }); flash(`${track.title} added to the end of the queue.`) }
+  const playNext = async (track: LibraryTrack) => { if (!currentTrack) return playTrack(track); await updateQueue({ ...queueState, upcomingTrackIds: [track.id, ...queueState.upcomingTrackIds.filter(id => id !== track.id && id !== currentTrack.id)], manualTrackIds: [...(queueState.manualTrackIds ?? []).filter(id => id !== track.id), track.id] }); flash(`${track.title} will play next.`) }
+  const playLast = async (track: LibraryTrack) => { if (!currentTrack) return playTrack(track); await updateQueue({ ...queueState, upcomingTrackIds: [...queueState.upcomingTrackIds.filter(id => id !== track.id), track.id], manualTrackIds: [...(queueState.manualTrackIds ?? []).filter(id => id !== track.id), track.id] }); flash(`${track.title} added to the end of the queue.`) }
   const selectQueueIndex = async (index: number) => { if (index < 0 || index >= queueTracks.length) return; const target = queueTracks[index]; const old = queueState.currentTrackId; await updateQueue({ ...queueState, currentTrackId: target.id, upcomingTrackIds: queueTracks.slice(index + 1).map(track => track.id), historyTrackIds: old && old !== target.id ? [...queueState.historyTrackIds, old].slice(-100) : queueState.historyTrackIds }) }
   const goNext = () => {
     if (queueTracks[1]) {
-      const index = queueState.shuffle ? 1 + Math.floor(Math.random() * (queueTracks.length - 1)) : 1
+      // Anything queued by hand plays in the order it was asked for, even on
+      // shuffle. Otherwise "Play next" picks a random song instead and the
+      // queue drains without ever reaching the one you chose.
+      const manual = queueState.manualTrackIds ?? []
+      const requested = queueTracks.slice(1).find(track => manual.includes(track.id))
+      const index = requested
+        ? queueTracks.indexOf(requested)
+        : queueState.shuffle ? 1 + Math.floor(Math.random() * (queueTracks.length - 1)) : 1
       const target = queueTracks[index]
-      void updateQueue({ ...queueState, currentTrackId: target.id, upcomingTrackIds: queueState.upcomingTrackIds.filter(id => id !== target.id), historyTrackIds: [...queueState.historyTrackIds, currentTrack!.id].slice(-1000) })
+      void updateQueue({ ...queueState, currentTrackId: target.id, upcomingTrackIds: queueState.upcomingTrackIds.filter(id => id !== target.id), manualTrackIds: manual.filter(id => id !== target.id), historyTrackIds: [...queueState.historyTrackIds, currentTrack!.id].slice(-1000) })
     } else if (queueState.repeat === 'all' && currentTrack) {
       const ids = [...new Set([...queueState.historyTrackIds, currentTrack.id])].filter(id => library.some(track => track.id === id))
       if (ids.length > 1) void updateQueue({ ...queueState, currentTrackId: ids[0], upcomingTrackIds: ids.slice(1), historyTrackIds: [] })

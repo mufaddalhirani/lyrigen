@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  screen,
   shell,
   Tray,
 } from 'electron'
@@ -490,6 +491,25 @@ function registerMediaShortcuts() {
   }
 }
 
+
+/**
+ * Keep a window inside the screen's *work area* — the desktop minus the
+ * taskbar. A frameless window is not given the usual shell treatment, so
+ * without this it happily sizes itself over the taskbar and the bottom of the
+ * app becomes unreachable.
+ */
+function clampToWorkArea(bounds: Electron.Rectangle): Electron.Rectangle {
+  const area = screen.getDisplayMatching(bounds).workArea
+  const width = Math.max(880, Math.min(bounds.width, area.width))
+  const height = Math.max(600, Math.min(bounds.height, area.height))
+  return {
+    width,
+    height,
+    x: Math.min(Math.max(bounds.x, area.x), area.x + area.width - width),
+    y: Math.min(Math.max(bounds.y, area.y), area.y + area.height - height),
+  }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -512,11 +532,34 @@ function createWindow() {
     console.log(`[renderer] ${message}`)
   })
 
+  // A frameless window's own maximize can spill past the taskbar, so pin it
+  // to the work area instead.
+  win.on('maximize', () => { if (win) win.setBounds(screen.getDisplayMatching(win.getBounds()).workArea) })
+  win.on('unmaximize', () => { if (win) win.setBounds(clampToWorkArea(win.getBounds())) })
+
   win.once('ready-to-show', () => {
     if (!win || smokeTestScreenshot) return
-    win.maximize()
+    const saved = getStateStore().get().windowBounds
+    // Reopen where it was left rather than maximised every time.
+    if (saved?.maximized) win.setBounds(screen.getDisplayMatching(win.getBounds()).workArea)
+    else if (saved) win.setBounds(clampToWorkArea(saved))
+    else win.setBounds(clampToWorkArea(win.getBounds()))
     win.show()
   })
+
+  // Remember size and position, debounced so dragging does not thrash the disk.
+  let saveTimer: NodeJS.Timeout | null = null
+  const rememberBounds = () => {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      if (!win || win.isDestroyed() || win.isMinimized()) return
+      const maximized = win.isMaximized()
+      const bounds = win.getBounds()
+      getStateStore().update(state => { state.windowBounds = { ...bounds, maximized } })
+    }, 600)
+  }
+  win.on('resize', rememberBounds)
+  win.on('move', rememberBounds)
 
   win.webContents.once('did-finish-load', async () => {
     if (!win || !smokeTestScreenshot) return

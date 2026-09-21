@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
 import { app } from 'electron'
 import { buildRelativePath, parseSongName, primaryArtist, stripYoutubeIdSuffix, uniquePath, PATH_PRESETS, type SongVariant } from './song-naming'
-import { downloadAudio, embedLyrics, inspectUrl, isOfflineError, isRetryableYtDlpError, needsCookies, probe, setCookieSource, writeTags, type AudioFormat, type AudioQuality, type CookieSource, type DownloadProgress, type LyricEmbedOutcome, type VideoInfo } from './media-tools'
+import { downloadAudio, embedLyrics, inspectUrl, isCookieDecryptError, isOfflineError, isRetryableYtDlpError, needsCookies, probe, setCookieSource, writeTags, type AudioFormat, type AudioQuality, type CookieSource, type DownloadProgress, type LyricEmbedOutcome, type VideoInfo } from './media-tools'
 import { findBestLyrics, lyricExtension, lyricLines, lyricsToPlainText, retimeLyrics, type LyricFormat, type LyricLookupResult } from './lyrics-sources'
 
 /**
@@ -98,6 +98,10 @@ export interface DownloadSettings extends DownloadOptions {
   betterLyricsApiKey: string | null
   /** Browser to take YouTube cookies from, for sign-in walled videos. */
   cookieSource: CookieSource
+  /** Profile directory for a browser yt-dlp cannot find on its own (Opera GX, portable installs). */
+  cookieProfile: string
+  /** A cookies.txt file. Takes priority, and is the only method Chromium 127+ cannot break. */
+  cookieFile: string
   /** Folder that is watched for new audio files to auto-organise (e.g. a browser download folder). */
   inboxFolder: string | null
   inboxEnabled: boolean
@@ -162,6 +166,8 @@ export function defaultSettings(): DownloadSettings {
     concurrency: 2,
     betterLyricsApiKey: null,
     cookieSource: 'none',
+    cookieProfile: '',
+    cookieFile: '',
     skipDuplicates: true,
     autoRetry: true,
     inboxFolder: null,
@@ -193,7 +199,7 @@ export class Downloader {
       // Anything mid-flight when the app closed simply goes back in the queue.
       job.status = 'queued'; job.stage = 'Waiting'; job.retryAt = null; job.attempts = 0
     }
-    setCookieSource(this.state.settings.cookieSource)
+    setCookieSource(this.state.settings.cookieSource, this.state.settings.cookieProfile, this.state.settings.cookieFile)
     this.persist()
   }
 
@@ -224,7 +230,7 @@ export class Downloader {
   get settings() { return { ...this.state.settings } }
   updateSettings(patch: Partial<DownloadSettings>) {
     this.state.settings = { ...this.state.settings, ...patch }
-    if ('cookieSource' in patch) setCookieSource(this.state.settings.cookieSource)
+    if ('cookieSource' in patch || 'cookieProfile' in patch || 'cookieFile' in patch) setCookieSource(this.state.settings.cookieSource, this.state.settings.cookieProfile, this.state.settings.cookieFile)
     if (!this.state.settings.destination) this.state.settings.destination = defaultDestination()
     this.persist()
     this.syncInboxWatcher()
@@ -349,6 +355,35 @@ export class Downloader {
     return done?.outputPath ?? null
   }
 
+  /**
+   * Is this song already on disk?
+   *
+   * The job history alone is not enough: clearing finished downloads, or
+   * downloading before this check existed, loses the record while the file is
+   * still sitting there. So also look where the file *would* go — under any
+   * audio extension, since the chosen format may have changed since — and for
+   * a sibling carrying the same video id.
+   */
+  private existingFileFor(metadata: SongMetadata, videoId: string | null, options: DownloadOptions) {
+    if (videoId) {
+      const known = this.findExisting(videoId)
+      if (known) return known
+    }
+    for (const extension of AUDIO_EXTENSIONS) {
+      const candidate = this.proposePath(metadata, extension, options.destination, options.pathTemplate, videoId)
+      if (fs.existsSync(candidate)) return candidate
+    }
+    // yt-dlp names keep the id in brackets; catch those too.
+    if (videoId) {
+      const folder = path.dirname(this.proposePath(metadata, '.mp3', options.destination, options.pathTemplate, videoId))
+      try {
+        const match = fs.readdirSync(folder).find(file => file.includes(videoId) && AUDIO_EXTENSIONS.has(path.extname(file).toLocaleLowerCase()))
+        if (match) return path.join(folder, match)
+      } catch { /* folder does not exist yet */ }
+    }
+    return null
+  }
+
   enqueue(items: Array<{ url: string; videoId?: string | null; metadata?: SongMetadata | null; info?: DownloadJob['info'] }>, options: Partial<DownloadOptions> = {}) {
     const jobOptions: DownloadOptions = { ...this.state.settings, ...options }
     const created: DownloadJob[] = []
@@ -360,7 +395,7 @@ export class Downloader {
       // Already queued or running: never the same video twice at once.
       if (videoId && this.state.jobs.some(job => job.videoId === videoId && ['queued', 'inspecting', 'downloading', 'converting', 'tagging', 'lyrics', 'organizing', 'waiting', 'paused'].includes(job.status))) continue
       // Already on disk from an earlier run: skip unless asked not to.
-      if (videoId && jobOptions.skipDuplicates !== false && this.findExisting(videoId)) { skipped += 1; continue }
+      if (jobOptions.skipDuplicates !== false && item.metadata && this.existingFileFor(item.metadata, videoId, jobOptions)) { skipped += 1; continue }
       const job: DownloadJob = {
         id: crypto.randomUUID(), url, videoId, status: 'queued', stage: 'Waiting', progress: 0, speed: null, eta: null, totalSize: null, error: null,
         createdAt: new Date().toISOString(), finishedAt: null, info: item.info ?? null, metadata: item.metadata ?? null,
@@ -471,7 +506,7 @@ export class Downloader {
 
   private async pump() {
     if (this.paused) return
-    const limit = Math.max(1, Math.min(4, this.state.settings.concurrency || 2))
+    const limit = Math.max(1, Math.min(8, this.state.settings.concurrency || 2))
     while (this.running.size < limit) {
       const next = this.state.jobs.find(job => job.status === 'queued' && !this.running.has(job.id))
       if (!next) break
@@ -560,7 +595,9 @@ export class Downloader {
       const offline = isOfflineError(message)
       // A sign-in wall fails the same way forever, so say what to do about it
       // rather than retrying into the same error three more times.
-      if (needsCookies(message)) {
+      if (isCookieDecryptError(message)) {
+        this.update(job, { status: 'error', stage: 'Cookies could not be read', error: 'Windows would not decrypt that browser’s cookies. Chromium 127+ (Chrome, Edge, Opera GX, Brave) locks its cookie store so yt-dlp cannot read it. Use Firefox, or export a cookies.txt file and point Downloads settings at it.', finishedAt: new Date().toISOString(), speed: null, eta: null })
+      } else if (needsCookies(message)) {
         this.update(job, { status: 'error', stage: 'Sign-in required', error: `${message} - set "Use cookies from" in Downloads settings to a browser you are signed into.`, finishedAt: new Date().toISOString(), speed: null, eta: null })
       } else if (job.options.autoRetry !== false && (offline || isRetryableYtDlpError(message)) && job.attempts < 3) {
         this.holdForRetry(job, message, offline)
@@ -668,15 +705,18 @@ export class Downloader {
     let done = 0
     for (const item of items) {
       if (!item.selected) { onProgress({ id: item.id, status: 'skipped', message: 'Not selected' }); continue }
+      let tagWarning = ''
       try {
         if (!fs.existsSync(item.sourcePath)) throw new Error('The file is no longer there.')
         const target = uniquePath(this.proposePath(item.metadata, path.extname(item.sourcePath), options.destination, options.pathTemplate, item.videoId), candidate => fs.existsSync(candidate) && path.resolve(candidate) !== path.resolve(item.sourcePath))
         if (options.rewriteTags) {
           onProgress({ id: item.id, status: 'tagging', message: 'Writing clean tags…' })
+          // Tags are a bonus; filing the song is the job. A file ffmpeg cannot
+          // retag still gets moved, rather than being left where it was.
           await writeTags(item.sourcePath, {
             title: this.displayTitle(item.metadata), artist: item.metadata.artist, album: item.metadata.album || item.metadata.variant || null, albumArtist: item.metadata.albumArtist || primaryArtist(item.metadata.artist),
             genre: item.metadata.genre, date: item.metadata.year, sourceUrl: item.videoId ? `https://www.youtube.com/watch?v=${item.videoId}` : null,
-          })
+          }).catch(error => { console.warn(`Could not retag ${item.fileName}`, error); tagWarning = error instanceof Error ? error.message : String(error) })
         }
         onProgress({ id: item.id, status: 'moving', message: `Moving to ${path.relative(options.destination, target) || target}` })
         await fs.promises.mkdir(path.dirname(target), { recursive: true })
@@ -695,7 +735,7 @@ export class Downloader {
           if (saved.path) moves.push({ from: '', to: saved.path })
           const embedded = saved.embedded === 'id3' || saved.embedded === 'tag'
           onProgress({ id: item.id, status: 'done', message: saved.path ? `Filed · lyrics from ${saved.source}${saved.retimed ? ' (re-timed)' : ''}${embedded ? ' (embedded)' : ''}` : 'Filed · no lyrics found', outputPath: target })
-        } else onProgress({ id: item.id, status: 'done', message: 'Filed', outputPath: target })
+        } else onProgress({ id: item.id, status: 'done', message: tagWarning ? 'Filed · tags left as they were' : 'Filed', outputPath: target })
         done += 1
       } catch (error) {
         onProgress({ id: item.id, status: 'error', message: error instanceof Error ? error.message : String(error) })
