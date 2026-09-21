@@ -60,6 +60,25 @@ The **Listening** screen keeps a recap for the last week, month, year, or all ti
 
 Plays are counted once per track per play, so hours listened treats each play as a full listen.
 
+## Suggestions
+
+Home builds four shelves from your own library and play counts — no service, no account, nothing leaves the machine:
+
+- **Speed dial** — what you reach for most.
+- **Quick picks** — more from the artists you have been playing, weighted toward tracks you have *not* worn out.
+- **On repeat lately** — what you have played recently.
+- **Never played** — in your library, never opened.
+
+**Shuffle everything** starts a random run through the whole library.
+
+## Sound Lab
+
+Four sections: **Appearance** (themes, type, lyric motion), **Sound** (what each playback control does), **Lyric tools** (the LRC → TTML converter), and **Mixer**.
+
+The player's sound controls include **bass and treble** shortcuts over the six-band EQ, and **pitch** — shift the key by up to a tone either way without changing speed. Centred, the pitch shifter is bypassed entirely.
+
+The **mixer** is two decks with independent speed, trim and an equal-power crossfader, running on its own audio graph so it never disturbs playback or your queue. There is no tempo detection — match tracks by ear with the speed sliders, the way you would on real decks.
+
 ## Themes and appearance
 
 Sound Lab → **Themes** changes how the whole app looks, straight away, and remembers it:
