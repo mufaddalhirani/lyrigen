@@ -506,7 +506,10 @@ export class Downloader {
 
   private async pump() {
     if (this.paused) return
-    const limit = Math.max(1, Math.min(8, this.state.settings.concurrency || 2))
+    // Each slot is a whole yt-dlp process plus, later, an ffmpeg pass, so the
+    // ceiling is about processes rather than bandwidth. 24 is high enough that
+    // a fast connection is the limit rather than this number.
+    const limit = Math.max(1, Math.min(24, this.state.settings.concurrency || 2))
     while (this.running.size < limit) {
       const next = this.state.jobs.find(job => job.status === 'queued' && !this.running.has(job.id))
       if (!next) break
