@@ -393,7 +393,11 @@ export function isCookieDecryptError(message: string) {
  * never look like a broken video.
  */
 export function isRetryableYtDlpError(message: string) {
-  return /403|429|forbidden|timed? out|timeout|connection|network|temporar|unable to download|fragment|read error|getaddrinfo|econnreset|handshake|ssl/i.test(message)
+  // The YouTube extractor also throws a handful of its own transient errors —
+  // "The page needs to be reloaded" and "try again later" are server-side
+  // hiccups that clear on a second attempt, and treating them as fatal makes
+  // a job fail that would have worked fifteen seconds later.
+  return /403|429|forbidden|timed? out|timeout|connection|network|temporar|unable to download|fragment|read error|getaddrinfo|econnreset|handshake|ssl|page needs to be reloaded|try again later|content isn.t available|failed to extract|player response/i.test(message)
 }
 
 /** True when the machine looks offline, so the queue can wait instead of failing every job. */
