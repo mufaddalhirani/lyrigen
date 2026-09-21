@@ -306,6 +306,35 @@ export function useAudioPlayer(visualsEnabled = true) {
     syncPlaybackRate()
   }, [syncPlaybackRate])
 
+  const [pitchSemitones, setPitchSemitones] = useState(0)
+  /** Shift pitch without touching speed. 0 bypasses the shifter entirely. */
+  const changePitch = useCallback((semitones: number) => {
+    const clamped = Math.max(-12, Math.min(12, Math.round(semitones * 2) / 2))
+    setPitchSemitones(clamped)
+    genreChainRef.current?.setPitchSemitones(clamped)
+  }, [])
+
+  /**
+   * Bass and treble are shortcuts over the existing EQ rather than new
+   * filters: bass moves the 60 Hz and 170 Hz bands together, treble the
+   * 3.5 kHz and 10 kHz pair. Same DSP, far less to think about than six
+   * sliders — and the EQ view still shows exactly what they did.
+   */
+  const changeTone = useCallback((which: 'bass' | 'treble', gain: number) => {
+    const clamped = Math.max(-9, Math.min(9, gain))
+    const indexes = which === 'bass' ? [0, 1] : [4, 5]
+    setEqBands(current => {
+      const next = [...current]
+      for (const index of indexes) {
+        next[index] = clamped
+        if (filtersRef.current[index]) filtersRef.current[index].gain.value = clamped
+      }
+      eqRef.current = next
+      return next
+    })
+    setEqPreset('Custom')
+  }, [])
+
   const changeEqBand = useCallback((index: number, gain: number) => {
     setEqBands(current => {
       const next = [...current]
@@ -426,6 +455,9 @@ export function useAudioPlayer(visualsEnabled = true) {
     genreMode,
     applyGenreMode,
     eqBands,
+    pitchSemitones,
+    changePitch,
+    changeTone,
     eqPreset,
     karaokeMode,
     leveling,

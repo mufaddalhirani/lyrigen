@@ -207,3 +207,75 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 .recap-lists b small{display:block;overflow:hidden;color:var(--muted);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap}
 .recap-lists em{color:var(--muted);font:10px var(--mono);font-style:normal}
 .recap-none{margin:10px 0 0;color:var(--muted);font-size:10.5px}
+
+/* Library table: the header grid had five columns while rows had six, so every
+   label sat one column left of the values it named. Same track definition for
+   both, rows a little shorter, and the action strip narrowed — six always-on
+   buttons per row was most of the visual noise. */
+.table-head,.track-row{grid-template-columns:42px minmax(200px,1.7fr) minmax(120px,.8fr) minmax(90px,.5fr) 52px 150px}
+.table-head{padding-left:14px}
+.table-head span:first-child{grid-column:2}
+.track-row{min-height:56px}
+.row-actions{gap:1px}
+.row-actions button{width:28px;height:28px;border-radius:7px}
+/* An empty genre or album is not worth a full-strength dash. */
+.track-row .track-meta:empty::after,.track-album:empty::after{content:'—';opacity:.25}
+/* Toolbar: one row, controls grouped right, nothing shouting. */
+.collection-toolbar{margin-bottom:14px}
+.collection-controls{display:flex;align-items:center;gap:6px}
+.collection-controls select{height:32px;font-size:11px}
+.segmented-tabs button{height:28px;padding:0 12px;font-size:11.5px}
+@media(max-width:1180px){.table-head,.track-row{grid-template-columns:42px minmax(180px,1.7fr) minmax(100px,.7fr) 52px 120px}.track-meta{display:none}}
+
+/* Sound Lab sections */
+.lab-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:18px}
+.lab-tabs button{display:grid;gap:3px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.03);text-align:left;transition:background .14s ease,border-color .14s ease}
+.lab-tabs button:hover{background:rgba(255,255,255,.07)}
+.lab-tabs button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.lab-tabs strong{font-size:12.5px;font-weight:600}
+.lab-tabs small{color:var(--muted);font-size:10px}
+.lab-guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:6px}
+.lab-guide div{padding:14px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.025)}
+.lab-guide strong{display:block;margin-bottom:6px;font-size:12px;font-weight:600}
+.lab-guide p{margin:0;color:var(--muted);font-size:11px;line-height:1.6}
+.lab-foot{display:flex;align-items:center;gap:7px;margin-top:16px;color:var(--muted);font-size:10.5px}
+/* Bass / treble / pitch shortcuts above the full EQ */
+.tone-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.tone-row label{display:grid;gap:5px}
+.tone-row span{color:var(--muted);font-size:10px}
+.tone-row b{color:var(--soft);font:10px var(--mono)}
+/* Mixer */
+.dj-panel{display:grid;gap:16px;margin-top:6px}
+.dj-decks{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:start}
+.dj-deck{display:grid;gap:10px;padding:14px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.03)}
+.dj-deck-head strong{display:block;overflow:hidden;margin-top:6px;font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+.dj-deck-head small{color:var(--muted);font-size:10.5px}
+.dj-transport{display:flex;align-items:center;gap:8px}
+.dj-transport button{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.06);color:var(--soft)}
+.dj-transport button:hover:not(:disabled){background:rgba(255,255,255,.13);color:#fff}
+.dj-transport button:disabled{opacity:.35;cursor:default}
+.dj-play{width:42px!important;height:42px!important;background:var(--accent)!important;color:#1d151b!important}
+.dj-time{margin-left:auto;color:var(--muted);font:10px var(--mono)}
+.dj-meter{height:4px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden}
+.dj-meter i{display:block;height:100%;background:var(--accent);transition:width .2s linear}
+.dj-control{display:grid;gap:5px}
+.dj-control span{color:var(--muted);font-size:10px}
+.dj-control b{color:var(--soft);font:10px var(--mono)}
+.dj-mixer{display:grid;gap:8px;justify-items:center;min-width:120px;padding:14px 10px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.02)}
+.dj-crossfader{width:100%}
+.dj-mixer-ends{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;color:var(--muted);font:10px var(--mono)}
+.dj-mixer-ends button{padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--soft);font-size:9.5px}
+.dj-browser{display:grid;gap:10px;padding:14px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.02)}
+.dj-results{display:grid;gap:4px}
+.dj-result{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;border-radius:9px}
+.dj-result:hover{background:rgba(255,255,255,.05)}
+.dj-result strong{display:block;font-size:11.5px;font-weight:550}
+.dj-result small{color:var(--muted);font-size:10px}
+.dj-result div{display:flex;gap:5px}
+.dj-result button{padding:5px 9px;border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.04);color:var(--soft);font:10px var(--mono)}
+.dj-result button:hover{border-color:var(--accent);color:#fff}
+.dj-note{margin:0;color:var(--muted);font-size:10.5px}
+@media(max-width:900px){.dj-decks{grid-template-columns:1fr}}
+
+/* Home: two calls to action side by side rather than one. */
+.hero-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}

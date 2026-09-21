@@ -84,6 +84,7 @@ export class GenreChain {
   private makeUp: GainNode
   private limiter: DynamicsCompressorNode
 
+  private manualSemitones = 0
   private impulseCache = new Map<string, AudioBuffer>()
   private workletReady: Promise<void> | null = null
   private disposed = false
@@ -245,6 +246,31 @@ export class GenreChain {
     const buffer = createImpulseResponse(this.context, character as never)
     this.impulseCache.set(character, buffer)
     return buffer
+  }
+
+  /**
+   * Shift pitch by hand, in semitones, independent of speed.
+   *
+   * The genre modes drive the same WSOLA worklet from a preset; this is the
+   * manual equivalent, so you can drop a track a tone without slowing it down.
+   * Zero routes back through the bypass path so there is no processing cost
+   * when the control is centred.
+   */
+  setPitchSemitones(semitones: number) {
+    this.manualSemitones = Math.max(-12, Math.min(12, semitones))
+    void this.attachWorklet().then(() => {
+      if (this.disposed) return
+      const ratio = Math.pow(2, this.manualSemitones / 12)
+      const active = Math.abs(this.manualSemitones) > 0.01 && this.pitchShifter !== null
+      if (this.pitchShifter) {
+        const param = this.pitchShifter.parameters.get('pitch')
+        if (param) param.value = ratio
+        this.pitchShifter.port.postMessage({ type: 'reset' })
+      }
+      const now = this.context.currentTime
+      this.pitchWet.gain.setTargetAtTime(active ? 1 : 0, now, 0.02)
+      this.pitchBypass.gain.setTargetAtTime(active ? 0 : 1, now, 0.02)
+    })
   }
 
   private applyPitch(mode: GenreMode) {
