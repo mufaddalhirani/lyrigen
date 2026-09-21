@@ -330,6 +330,41 @@ function authArgs() {
   return ['--cookies-from-browser', cookieProfile ? `${cookieSource}:${cookieProfile}` : cookieSource]
 }
 
+/**
+ * Does this cookies.txt actually carry a YouTube login?
+ *
+ * A "Get cookies.txt" export made while signed out, or one that skips
+ * HttpOnly cookies, yields a file holding only `PREF` and `SOCS`. yt-dlp
+ * accepts it happily and then fails with "Sign in to confirm you're not a
+ * bot", which sends people hunting in the wrong place. Checking for the
+ * session cookies up front turns that into a sentence that says what to do.
+ */
+export function inspectCookiesFile(filePath: string): { ok: boolean; message: string } {
+  if (!filePath) return { ok: false, message: 'No cookies file set.' }
+  let text: string
+  try {
+    text = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return { ok: false, message: 'That file could not be read. Check the path.' }
+  }
+  const rows = text.split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith('#'))
+  if (!rows.length) return { ok: false, message: 'That file has no cookies in it.' }
+  const youtube = rows.filter(row => /(^|\.)youtube\.com/i.test(row.split('\t')[0] ?? ''))
+  if (!youtube.length) return { ok: false, message: 'No youtube.com cookies in that file. Export it from a YouTube tab while signed in.' }
+  // Any one of these means a signed-in session; which appear varies by account.
+  const names = new Set(youtube.map(row => (row.split('\t')[5] ?? '').trim()))
+  const auth = ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'LOGIN_INFO', '__Secure-1PSID', '__Secure-3PSID']
+  const found = auth.filter(name => names.has(name))
+  if (!found.length) {
+    const sample = [...names].filter(Boolean).slice(0, 4).join(', ')
+    return {
+      ok: false,
+      message: `Found ${youtube.length} YouTube cookie${youtube.length === 1 ? '' : 's'}${sample ? ` (${sample})` : ''}, but none of them is a login. Sign in to YouTube, then export again with an extension that includes HttpOnly cookies.`,
+    }
+  }
+  return { ok: true, message: `Signed-in session found (${found.length} auth cookie${found.length === 1 ? '' : 's'}).` }
+}
+
 /** The DPAPI failure is specific enough to explain properly rather than pass through raw. */
 export function isCookieDecryptError(message: string) {
   return /failed to decrypt with dpapi|dpapi|could not decrypt|app-?bound/i.test(message)

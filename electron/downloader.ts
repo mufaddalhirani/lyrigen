@@ -598,7 +598,7 @@ export class Downloader {
       if (isCookieDecryptError(message)) {
         this.update(job, { status: 'error', stage: 'Cookies could not be read', error: 'Windows would not decrypt that browser’s cookies. Chromium 127+ (Chrome, Edge, Opera GX, Brave) locks its cookie store so yt-dlp cannot read it. Use Firefox, or export a cookies.txt file and point Downloads settings at it.', finishedAt: new Date().toISOString(), speed: null, eta: null })
       } else if (needsCookies(message)) {
-        this.update(job, { status: 'error', stage: 'Sign-in required', error: `${message} - set "Use cookies from" in Downloads settings to a browser you are signed into.`, finishedAt: new Date().toISOString(), speed: null, eta: null })
+        this.update(job, { status: 'error', stage: 'Sign-in required', error: 'YouTube asked this download to prove it is not a bot. It only clears with a signed-in session: export a cookies.txt while logged into YouTube and set it in Downloads settings. The browser dropdown works for Firefox, but Chromium browsers (Chrome, Edge, Brave, Opera GX) encrypt their cookie store and cannot be read.', finishedAt: new Date().toISOString(), speed: null, eta: null })
       } else if (job.options.autoRetry !== false && (offline || isRetryableYtDlpError(message)) && job.attempts < 3) {
         this.holdForRetry(job, message, offline)
       } else {

@@ -56,6 +56,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
   const [showSettings, setShowSettings] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [cookieCheck, setCookieCheck] = useState<{ ok: boolean; message: string } | null>(null)
   const settingsTimer = useRef<number | null>(null)
 
   useEffect(() => {
@@ -69,6 +70,18 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
     const offJobs = window.electronAPI.onDownloadJobs(setJobs)
     return () => { active = false; offJob(); offJobs() }
   }, [])
+
+  // Check the cookies file as soon as there is a path, so a bad export is
+  // caught here rather than as a "not a bot" failure three downloads later.
+  useEffect(() => {
+    const file = settings?.cookieFile?.trim()
+    if (!file) { setCookieCheck(null); return }
+    let active = true
+    void window.electronAPI.inspectCookiesFile(file)
+      .then(result => { if (active) setCookieCheck(result) })
+      .catch(() => { if (active) setCookieCheck(null) })
+    return () => { active = false }
+  }, [settings?.cookieFile])
 
   const patchSettings = (patch: Partial<DownloadSettings>) => {
     setSettings(current => current ? { ...current, ...patch } : current)
@@ -233,7 +246,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
           <label className="toggle"><input type="checkbox" checked={settings.inboxEnabled} disabled={!settings.inboxFolder} onChange={event => patchSettings({ inboxEnabled: event.target.checked })} /><span><strong>Watch the inbox</strong><small>Any audio file that lands there is tagged, given lyrics and filed into the destination automatically once it stops changing.</small></span></label>
           <label><span>Use cookies from</span><select value={settings.cookieSource} onChange={event => patchSettings({ cookieSource: event.target.value as DownloadSettings['cookieSource'] })}>{COOKIE_SOURCES.map(source => <option key={source.value} value={source.value}>{source.label}</option>)}</select><small className="settings-note">Age-restricted and "Please sign in" videos only download when yt-dlp can use a signed-in session. Cookies are read locally and never leave this PC. Close the browser first — it locks its own cookie database.</small></label>
           {settings.cookieSource !== 'none' && <div className="field"><span>Browser profile folder <em>(optional)</em></span><input type="text" placeholder="e.g. C:\Users\you\AppData\Roaming\Opera Software\Opera GX Stable" value={settings.cookieProfile} onChange={event => patchSettings({ cookieProfile: event.target.value })} /><small className="settings-note">Only needed for browsers yt-dlp cannot find by name — Opera GX, portable installs, or a non-default profile. Leave empty otherwise.</small></div>}
-          <div className="field"><span>Or a cookies.txt file</span><input type="text" placeholder="C:\Users\you\Downloads\cookies.txt" value={settings.cookieFile} onChange={event => patchSettings({ cookieFile: event.target.value })} /><small className="settings-note"><strong>This is the reliable option on Windows.</strong> Chrome, Edge, Brave and Opera GX (Chromium 127+) encrypt their cookie store so yt-dlp cannot read it and fails with "Failed to decrypt with DPAPI". A cookies.txt file is not affected. To make one: install a "Get cookies.txt" extension in your browser, open <b>youtube.com</b> while signed in, export, and paste the file path here. Firefox is the one browser the direct method still works with.</small></div>
+          <div className="field"><span>Or a cookies.txt file</span><div className="path-field"><input type="text" placeholder="C:\Users\you\Downloads\cookies.txt" value={settings.cookieFile} onChange={event => patchSettings({ cookieFile: event.target.value })} /><button onClick={() => void window.electronAPI.chooseCookiesFile().then(result => { if (result) { patchSettings({ cookieFile: result.path }); setCookieCheck({ ok: result.ok, message: result.message }) } })}>Browse</button></div>{cookieCheck && <p className={`cookie-status ${cookieCheck.ok ? 'ok' : 'bad'}`}>{cookieCheck.ok ? '✓ ' : '! '}{cookieCheck.message}</p>}<small className="settings-note"><strong>This is the reliable option on Windows.</strong> Chrome, Edge, Brave and Opera GX (Chromium 127+) encrypt their cookie store so yt-dlp cannot read it and fails with "Failed to decrypt with DPAPI". A cookies.txt file is not affected. To make one: install a "Get cookies.txt" extension in your browser, open <b>youtube.com</b> while signed in, export, and paste the file path here. Firefox is the one browser the direct method still works with.</small></div>
           <div className="field"><span>Tools folder</span><div className="path-field"><input type="text" value={settings.toolsFolder || (tools?.tools.find(tool => tool.ok)?.path?.replace(/[\\/][^\\/]+$/, '') ?? '')} readOnly /><button onClick={() => void locateTools()}>Change</button></div></div>
           <div className="field"><span>Better Lyrics API key</span><input type="password" placeholder="Optional — leave empty unless you have one" value={settings.betterLyricsApiKey ?? ''} onChange={event => patchSettings({ betterLyricsApiKey: event.target.value.trim() || null })} /><small>Better Lyrics answers for any song already in its cache without a key, and Lyrigen falls back to Unison, AMLL and LRCLIB when it doesn't. Keys are not currently being issued, so leave this empty. To add a song to the cache, play it once on YouTube Music with the Better Lyrics extension — it then becomes available here too.</small></div>
         </div>

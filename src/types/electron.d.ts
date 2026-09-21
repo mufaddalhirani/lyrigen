@@ -407,6 +407,8 @@ interface ElectronAPI {
   getResumePosition: (trackId: string) => Promise<number | null>
   getSettings: () => Promise<SettingsState>
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
+  inspectCookiesFile: (filePath: string) => Promise<{ ok: boolean; message: string }>
+  chooseCookiesFile: () => Promise<{ path: string; ok: boolean; message: string } | null>
   clearPlayHistory: () => Promise<{ cleared: number }>
   clearResumePositions: () => Promise<{ cleared: number }>
   resetWindowBounds: () => Promise<boolean>

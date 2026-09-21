@@ -21,7 +21,7 @@ import { configureGraphics, reportGraphicsStatus } from './graphics'
 import { getThumbnailUrl, pruneThumbnailCache } from './artwork-cache'
 import { Downloader, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
-import { isPreviewing, previewUrl, setToolsFolder, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
+import { inspectCookiesFile, isPreviewing, previewUrl, setToolsFolder, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
 import { setBetterLyricsApiKey } from './lyrics-sources'
 import { PATH_PRESETS, primaryArtist } from './song-naming'
 
@@ -1073,6 +1073,20 @@ ipcMain.handle('save-resume-position', (_event, trackId: string, positionMs: num
 })
 ipcMain.handle('get-resume-position', (_event, trackId: string) => getStateStore().get().resumePositions[trackId] ?? null)
 ipcMain.handle('get-settings', () => getStateStore().get().settings)
+
+/** Say whether a cookies.txt actually holds a YouTube login, before yt-dlp tries it. */
+ipcMain.handle('inspect-cookies-file', (_event, filePath: string) => inspectCookiesFile(filePath))
+
+/** Pick a cookies.txt, so nobody has to paste a path by hand. */
+ipcMain.handle('choose-cookies-file', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Choose your exported cookies.txt',
+    properties: ['openFile'],
+    filters: [{ name: 'Cookies', extensions: ['txt'] }],
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  return { path: result.filePaths[0], ...inspectCookiesFile(result.filePaths[0]) }
+})
 
 /**
  * Maintenance actions for the Settings screen.

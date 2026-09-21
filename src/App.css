@@ -315,3 +315,8 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 .settings-card .setting-toggle{align-items:flex-start;gap:12px}
 .settings-card .setting-toggle small{display:block;margin-top:4px;line-height:1.55}
 .settings-card .setting-toggle i{flex:0 0 auto;margin-top:3px}
+
+/* Cookie file validation feedback */
+.cookie-status{margin:7px 0 0;font-size:10.5px;line-height:1.55}
+.cookie-status.ok{color:var(--success)}
+.cookie-status.bad{color:var(--accent-strong)}
