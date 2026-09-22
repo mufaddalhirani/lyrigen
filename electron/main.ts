@@ -19,7 +19,7 @@ import { createRateLimiter, mapLimited, matchScore, cleanTitle } from './catalog
 import { createPlaylist, createStateStore, emptyQueue } from './state-store'
 import { configureGraphics, reportGraphicsStatus } from './graphics'
 import { getThumbnailUrl, pruneThumbnailCache } from './artwork-cache'
-import { Downloader, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
+import { Downloader, songIdentity, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
 import { inspectCookiesFile, isPreviewing, previewUrl, setToolsFolder, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
 import { setBetterLyricsApiKey } from './lyrics-sources'
@@ -397,6 +397,18 @@ async function scanLibrary(rootPath: string | null): Promise<LibraryScanResult> 
 }
 
 let libraryCache: LibraryScanResult | null = null
+/**
+ * Forget everything cached about what is on disk.
+ *
+ * Two caches describe the same thing from different angles: the library scan,
+ * and the downloader's index of songs you already have. Moving, deleting or
+ * retagging files invalidates both, and letting them drift apart is how you end
+ * up downloading a song the app can already see.
+ */
+function forgetLibrary() {
+  libraryCache = null
+  downloader?.invalidateLibraryIndex()
+}
 let activeScan: Promise<LibraryScanResult> | null = null
 async function scanAllLibraries(rootPaths: string[]): Promise<LibraryScanResult> {
   if (activeScan) await activeScan
@@ -737,6 +749,12 @@ function getDownloader() {
     setToolsFolder(downloader.settings.toolsFolder)
     setBetterLyricsApiKey(downloader.settings.betterLyricsApiKey)
     downloader.setKnownArtistsProvider(() => (libraryCache?.items ?? []).flatMap(item => [item.artist, item.albumArtist]).filter((name): name is string => Boolean(name)))
+    // Everywhere a song might already be. The roots cover the folders a person
+    // pointed Lyrigen at; the scan results add the artist and length that only
+    // reading the tags can give, which is what makes a match trustworthy when
+    // the YouTube title calls the uploader the artist.
+    downloader.setLibraryFoldersProvider(() => readSavedLibraryRoots())
+    downloader.setLibraryEntriesProvider(() => (libraryCache?.items ?? []).map(item => ({ audioPath: item.audioPath, title: item.title, artist: item.artist ?? item.albumArtist, duration: item.duration })))
     downloader.setMusicBrainzLookup(request => lookupTrackMetadata(request))
     downloader.subscribe((event, payload) => {
       win?.webContents.send(event === 'job' ? 'download-job' : event === 'jobs' ? 'download-jobs' : event === 'inbox' ? 'inbox-progress' : 'organize-progress', payload)
@@ -757,6 +775,23 @@ ipcMain.handle('choose-tools-folder', async () => {
 })
 ipcMain.handle('update-yt-dlp', () => updateYtDlp().catch(error => ({ ok: false, message: error instanceof Error ? error.message : String(error) })))
 ipcMain.handle('get-download-settings', () => ({ settings: getDownloader().settings, presets: PATH_PRESETS }))
+/**
+ * Which configured folders and files are no longer there.
+ *
+ * Settings point at paths, and paths outlive nothing. A library root that was
+ * renamed, a destination on a drive that is unplugged, a cookies.txt that the
+ * browser overwrote with a fresh export under a new name — each one makes
+ * Lyrigen quietly behave as though the library were empty, which looks exactly
+ * like a broken duplicate check. Saying so is the whole fix.
+ */
+ipcMain.handle('check-download-paths', () => {
+  const settings = getDownloader().settings
+  const missing: Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }> = []
+  if (settings.destination && !fs.existsSync(settings.destination)) missing.push({ kind: 'destination', path: settings.destination })
+  for (const root of readSavedLibraryRoots()) if (!fs.existsSync(root)) missing.push({ kind: 'library', path: root })
+  if (settings.cookieFile && !fs.existsSync(settings.cookieFile)) missing.push({ kind: 'cookies', path: settings.cookieFile })
+  return missing
+})
 ipcMain.handle('update-download-settings', (_event, patch: Partial<DownloadSettings>) => {
   const settings = getDownloader().updateSettings(patch)
   if ('toolsFolder' in patch) setToolsFolder(settings.toolsFolder)
@@ -791,13 +826,13 @@ ipcMain.handle('plan-organize', (_event, inputs: string[], options: { destinatio
 ipcMain.handle('replan-organize-item', (_event, item: OrganizePlanItem, options: { destination: string; pathTemplate: string }) => getDownloader().replan(item, options))
 ipcMain.handle('apply-organize', async (_event, items: OrganizePlanItem[], options: OrganizeApplyOptions) => {
   const result = await getDownloader().applyOrganize(items, options, progress => win?.webContents.send('organize-progress', { phase: 'applying', ...progress }))
-  libraryCache = null
+  forgetLibrary()
   win?.webContents.send('library-updated', await scanAllLibraries(readSavedLibraryRoots()))
   return result
 })
 ipcMain.handle('undo-organize', async () => {
   const result = await getDownloader().undoOrganize()
-  libraryCache = null
+  forgetLibrary()
   win?.webContents.send('library-updated', await scanAllLibraries(readSavedLibraryRoots()))
   return result
 })
@@ -823,7 +858,7 @@ ipcMain.handle('save-lyric-file', async (_event, audioPath: string, content: str
     if (fs.existsSync(targetPath)) await backupFile(targetPath)
     await fs.promises.writeFile(targetPath, content, 'utf8')
     const embedded = options?.embed ? await getDownloader().embedLyricsInto(audioPath, content, format) : null
-    libraryCache = null
+    forgetLibrary()
     return { saved: true, path: targetPath, embedded: embedded === 'id3' || embedded === 'tag' }
   } catch (error) {
     console.error('Unable to save lyrics', error)
@@ -849,7 +884,7 @@ ipcMain.handle('fetch-lyrics-for-tracks', async (_event, tracks: Array<{ id: str
       win?.webContents.send('lyrics-batch-progress', { ...entry, status: 'missed' })
     }
   }
-  libraryCache = null
+  forgetLibrary()
   win?.webContents.send('library-updated', await scanAllLibraries(readSavedLibraryRoots()))
   return results
 })
@@ -1075,15 +1110,19 @@ ipcMain.handle('get-resume-position', (_event, trackId: string) => getStateStore
 /**
  * Duplicate cleanup.
  *
- * Grouping is by title plus exact file size, the same rule the library scan
- * uses to flag `possibleDuplicate` — two files that agree on both are the same
- * recording rather than a cover or a remaster.
+ * Grouping used to be title plus exact file size, which only ever caught a
+ * literal copy of a file. The same song downloaded twice — different day,
+ * different upload, different bitrate — sailed past it, and that is exactly
+ * what a library assembled from YouTube fills up with. So a group is now the
+ * same video id, or the same artist + song + edit, with lengths that agree;
+ * "(Sped Up)" stays a different song from the original, on purpose.
  *
  * One file in each group is always kept, and the choice is not arbitrary: a
- * copy with lyrics beside it beats one without, then the shorter path, which
- * favours the organised location over a loose download folder. Everything else
- * goes to the Recycle Bin rather than being unlinked, so a wrong call costs a
- * restore instead of the file.
+ * copy with lyrics beside it wins, then the bigger file (which on two copies of
+ * one song means the better bitrate), then the shorter path, which favours the
+ * organised location over a loose download folder. Everything else goes to the
+ * Recycle Bin rather than being unlinked, so a wrong call costs a restore
+ * instead of the file.
  */
 interface DuplicateGroup {
   key: string
@@ -1092,34 +1131,62 @@ interface DuplicateGroup {
   remove: Array<{ path: string; size: number }>
 }
 
+/** Two recordings this far apart in length are different versions, not copies. */
+const DUPLICATE_LENGTH_TOLERANCE = 10
+
 function planDuplicateCleanup(): DuplicateGroup[] {
   const items = libraryCache?.items ?? []
   const groups = new Map<string, LibraryTrack[]>()
   for (const item of items) {
-    if (!item.fileSize) continue
-    const key = `${item.title.toLocaleLowerCase()}|${item.fileSize}`
+    const identity = songIdentity(item.audioPath, item.title, item.artist ?? item.albumArtist)
+    const key = identity.videoId ? `v:${identity.videoId}` : `s:${identity.song}`
     groups.set(key, [...(groups.get(key) ?? []), item])
   }
   const plan: DuplicateGroup[] = []
   for (const [key, tracks] of groups) {
     if (tracks.length < 2) continue
-    const ranked = [...tracks].sort((left, right) => {
-      const lyrics = Number(Boolean(right.lyricPath)) - Number(Boolean(left.lyricPath))
-      if (lyrics) return lyrics
-      return left.audioPath.length - right.audioPath.length
-    })
-    const [keep, ...rest] = ranked
-    plan.push({
-      key,
-      title: keep.title,
-      keep: { path: keep.audioPath, reason: keep.lyricPath ? 'has lyrics beside it' : 'shortest path' },
-      remove: rest.map(track => ({ path: track.audioPath, size: track.fileSize })),
-    })
+    // A group keyed on the song name still has to agree on length, or a radio
+    // edit and an extended mix would look like one file too many.
+    for (const [index, bucket] of bucketByLength(tracks).entries()) {
+      if (bucket.length < 2) continue
+      const ranked = [...bucket].sort((left, right) => {
+        const lyrics = Number(Boolean(right.lyricPath)) - Number(Boolean(left.lyricPath))
+        if (lyrics) return lyrics
+        const size = right.fileSize - left.fileSize
+        if (size) return size
+        return left.audioPath.length - right.audioPath.length
+      })
+      const [keep, ...rest] = ranked
+      const bigger = rest.every(track => track.fileSize < keep.fileSize)
+      plan.push({
+        key: `${key}#${index}`,
+        title: keep.artist ? `${keep.artist} — ${keep.title}` : keep.title,
+        keep: { path: keep.audioPath, reason: keep.lyricPath ? 'has lyrics beside it' : bigger ? 'biggest file' : 'shortest path' },
+        remove: rest.map(track => ({ path: track.audioPath, size: track.fileSize })),
+      })
+    }
   }
   return plan.sort((left, right) => right.remove.length - left.remove.length)
 }
 
-ipcMain.handle('plan-duplicate-cleanup', () => planDuplicateCleanup())
+/** Split a group into runs of tracks that are the same length. */
+function bucketByLength(tracks: LibraryTrack[]) {
+  const buckets: LibraryTrack[][] = []
+  for (const track of [...tracks].sort((left, right) => (left.duration ?? 0) - (right.duration ?? 0))) {
+    const bucket = buckets.find(candidate => candidate.some(other =>
+      track.duration == null || other.duration == null || Math.abs(other.duration - track.duration) <= DUPLICATE_LENGTH_TOLERANCE))
+    if (bucket) bucket.push(track); else buckets.push([track])
+  }
+  return buckets
+}
+
+ipcMain.handle('plan-duplicate-cleanup', async () => {
+  // Opening this straight after launch used to report a tidy library, because
+  // nothing had been scanned yet and an empty list looks the same as no
+  // duplicates. Scan first, then answer.
+  if (!libraryCache) await scanAllLibraries(readSavedLibraryRoots())
+  return planDuplicateCleanup()
+})
 
 /** Send the chosen files to the Recycle Bin. Never unlinks. */
 ipcMain.handle('trash-files', async (_event, paths: string[]) => {
@@ -1134,7 +1201,7 @@ ipcMain.handle('trash-files', async (_event, paths: string[]) => {
       failed.push(path.basename(target))
     }
   }
-  libraryCache = null
+  forgetLibrary()
   return { trashed, failed }
 })
 
@@ -1163,7 +1230,7 @@ ipcMain.handle('choose-cookies-file', async () => {
 ipcMain.handle('clear-play-history', () => {
   const before = getStateStore().get().playHistory.length
   getStateStore().update(state => { state.playHistory = [] })
-  libraryCache = null
+  forgetLibrary()
   return { cleared: before }
 })
 
@@ -1434,7 +1501,7 @@ async function applyMetadata(request: Parameters<MetadataFiles['write']>[0]) {
   try {
     const result = await tagFiles().write(request)
     indexCache.delete(request.filePath)
-    libraryCache = null
+    forgetLibrary()
     return result
   } catch (error) { return { written: false, message: error instanceof Error ? error.message : 'Metadata could not be applied.' } }
 }
@@ -1453,7 +1520,7 @@ ipcMain.handle('update-artwork', async (_event, request: { audioPath: string; im
 ipcMain.handle('undo-last-file-edit', async () => {
   try {
     const result = await tagFiles().undo()
-    if (result.undone) { indexCache.clear(); libraryCache = null; win?.webContents.send('library-updated', await scanAllLibraries(readSavedLibraryRoots())); return result }
+    if (result.undone) { indexCache.clear(); forgetLibrary(); win?.webContents.send('library-updated', await scanAllLibraries(readSavedLibraryRoots())); return result }
     if (!lastFileBackup) return result
     await fs.promises.copyFile(lastFileBackup.backupPath, lastFileBackup.originalPath)
     lastFileBackup = null

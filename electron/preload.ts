@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   updateSettings: (settings: unknown) => ipcRenderer.invoke('update-settings', settings),
   planDuplicateCleanup: () => ipcRenderer.invoke('plan-duplicate-cleanup'),
+  checkDownloadPaths: () => ipcRenderer.invoke('check-download-paths'),
   trashFiles: (paths: string[]) => ipcRenderer.invoke('trash-files', paths),
   inspectCookiesFile: (filePath: string) => ipcRenderer.invoke('inspect-cookies-file', filePath),
   chooseCookiesFile: () => ipcRenderer.invoke('choose-cookies-file'),

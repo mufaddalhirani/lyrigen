@@ -11,12 +11,18 @@ import { prettyTime } from '../lib/format'
 
 const VARIANTS: Array<SongVariant | ''> = ['', 'Sped Up', 'Nightcore', 'Slowed', 'Slowed + Reverb', 'Reverb', 'Lo-Fi', 'Daycore', '8D', 'Bass Boosted', 'Remix', 'Acoustic', 'Live', 'Instrumental', 'Karaoke', 'Cover', 'Mashup']
 const FORMATS: Array<{ value: AudioFormat; label: string; hint: string }> = [
-  { value: 'mp3', label: 'MP3', hint: 'Plays everywhere; tags + cover embedded' },
-  { value: 'm4a', label: 'M4A / AAC', hint: 'Best quality per MB, what YouTube streams' },
-  { value: 'opus', label: 'Opus', hint: 'Smallest files, no re-encode from YouTube' },
-  { value: 'flac', label: 'FLAC', hint: 'Lossless container (source is still lossy)' },
-  { value: 'best', label: 'Original stream', hint: 'No conversion at all' },
+  { value: 'm4a', label: 'M4A / AAC', hint: 'Recommended — kept exactly as YouTube sent it' },
+  { value: 'opus', label: 'Opus', hint: 'Also untouched; smaller files, fewer players' },
+  { value: 'best', label: 'Original stream', hint: 'Whatever YouTube offers, no conversion' },
+  { value: 'mp3', label: 'MP3', hint: 'Plays on anything, but re-encodes and loses a little' },
+  { value: 'flac', label: 'FLAC', hint: 'Lossless wrapper around a lossy source; large files' },
 ]
+
+/** Formats YouTube already serves, so no re-encoding happens on the way in. */
+const LOSSLESS_PATH: AudioFormat[] = ['m4a', 'opus', 'best']
+
+/** How many rows to draw at once. A 5,000-song playlist must not try to paint 5,000 cards. */
+const PAGE = 80
 
 const ACTIVE: DownloadJobStatus[] = ['queued', 'inspecting', 'downloading', 'converting', 'tagging', 'lyrics', 'organizing', 'waiting', 'paused']
 
@@ -57,7 +63,14 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
   const [updating, setUpdating] = useState(false)
   const [paused, setPaused] = useState(false)
   const [cookieCheck, setCookieCheck] = useState<{ ok: boolean; message: string } | null>(null)
+  const [queueing, setQueueing] = useState(false)
+  const [skipReport, setSkipReport] = useState<SkippedDownload[] | null>(null)
+  const [shownItems, setShownItems] = useState(PAGE)
+  const [shownJobs, setShownJobs] = useState(PAGE)
+  const [missingPaths, setMissingPaths] = useState<Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }>>([])
   const settingsTimer = useRef<number | null>(null)
+  const pendingJobs = useRef(new Map<string, DownloadJob>())
+  const flushTimer = useRef<number | null>(null)
 
   useEffect(() => {
     let active = true
@@ -66,9 +79,30 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
       setSettings(downloadSettings.settings); setPresets(downloadSettings.presets); setTools(toolsStatus); setJobs(existing)
     })
     void window.electronAPI.areDownloadsPaused().then(value => { if (active) setPaused(value) }).catch(() => undefined)
-    const offJob = window.electronAPI.onDownloadJob(job => setJobs(current => current.some(item => item.id === job.id) ? current.map(item => item.id === job.id ? job : item) : [...current, job]))
+    void window.electronAPI.checkDownloadPaths().then(value => { if (active) setMissingPaths(value) }).catch(() => undefined)
+    // Two dozen parallel downloads emit progress far faster than anything needs
+    // to be drawn, and each event used to walk the whole job list. Collect them
+    // and apply the batch a few times a second instead.
+    const offJob = window.electronAPI.onDownloadJob(job => {
+      pendingJobs.current.set(job.id, job)
+      if (flushTimer.current) return
+      flushTimer.current = window.setTimeout(() => {
+        flushTimer.current = null
+        const batch = pendingJobs.current
+        pendingJobs.current = new Map()
+        setJobs(current => {
+          const known = new Set(current.map(item => item.id))
+          const next = current.map(item => batch.get(item.id) ?? item)
+          for (const [id, job] of batch) if (!known.has(id)) next.push(job)
+          return next
+        })
+      }, 300)
+    })
     const offJobs = window.electronAPI.onDownloadJobs(setJobs)
-    return () => { active = false; offJob(); offJobs() }
+    return () => {
+      active = false; offJob(); offJobs()
+      if (flushTimer.current) { window.clearTimeout(flushTimer.current); flushTimer.current = null }
+    }
   }, [])
 
   // Check the cookies file as soon as there is a path, so a bad export is
@@ -86,7 +120,10 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
   const patchSettings = (patch: Partial<DownloadSettings>) => {
     setSettings(current => current ? { ...current, ...patch } : current)
     if (settingsTimer.current) window.clearTimeout(settingsTimer.current)
-    settingsTimer.current = window.setTimeout(() => { void window.electronAPI.updateDownloadSettings(patch).then(setSettings) }, 250)
+    settingsTimer.current = window.setTimeout(() => {
+      void window.electronAPI.updateDownloadSettings(patch).then(setSettings)
+      if ('destination' in patch || 'cookieFile' in patch) void window.electronAPI.checkDownloadPaths().then(setMissingPaths).catch(() => undefined)
+    }, 250)
   }
 
   const inspect = async () => {
@@ -100,7 +137,9 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
       if (result.playlistTitle) setPlaylistTitle(result.playlistTitle)
       for (const item of result.items) if (!found.some(existing => existing.videoId === item.videoId)) found.push(item)
     }
-    setItems(current => [...current.filter(existing => !found.some(item => item.videoId === existing.videoId)), ...found])
+    const foundIds = new Set(found.map(item => item.videoId))
+    setItems(current => [...current.filter(existing => !foundIds.has(existing.videoId)), ...found])
+    setShownItems(PAGE)
     setInspecting(false)
     if (found.length) setUrls('')
   }
@@ -108,11 +147,14 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
   const editItem = (videoId: string, patch: Partial<SongMetadata>) => setItems(current => current.map(item => item.videoId === videoId ? { ...item, metadata: { ...item.metadata, ...patch, origin: 'manual', confidence: 'high' } } : item))
 
   const enqueueAll = async () => {
-    if (!items.length) return
-    const created = await window.electronAPI.enqueueDownloads(items.map(item => ({ url: item.url, videoId: item.videoId, metadata: item.metadata, info: { title: item.info.title, uploader: item.info.uploader, thumbnail: item.info.thumbnail, duration: item.info.duration, extractor: item.info.extractor } })), settings ?? undefined)
-    const skipped = items.length - created.length
-    setItems([]); setPlaylistTitle(null)
-    flash(`${created.length} song${created.length === 1 ? '' : 's'} added to the queue.${skipped > 0 ? ` ${skipped} skipped — already downloaded.` : ''}`)
+    if (!items.length || queueing) return
+    setQueueing(true)
+    try {
+      const { created, skipped } = await window.electronAPI.enqueueDownloads(items.map(item => ({ url: item.url, videoId: item.videoId, metadata: item.metadata, info: { title: item.info.title, uploader: item.info.uploader, thumbnail: item.info.thumbnail, duration: item.info.duration, extractor: item.info.extractor } })), settings ?? undefined)
+      setItems([]); setPlaylistTitle(null); setShownItems(PAGE)
+      setSkipReport(skipped.length ? skipped : null)
+      flash(`${created.length} song${created.length === 1 ? '' : 's'} added to the queue.${skipped.length ? ` ${skipped.length} you already have ${skipped.length === 1 ? 'was' : 'were'} skipped.` : ''}`)
+    } finally { setQueueing(false) }
   }
 
   const preview = async (item: InspectItem) => {
@@ -149,9 +191,23 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
       <small>{inspectError ? inspectError : ready ? 'Ctrl+Enter to inspect · nothing downloads until you add it to the queue' : 'yt-dlp and ffmpeg are needed before anything can be downloaded'}</small>
     </div>
 
+    {missingPaths.length > 0 && <div className="tool-panel" style={{ borderColor: 'var(--warning, #c9793a)' }}>
+      <div className="tool-panel-head"><strong>Some folders Lyrigen was told about are gone</strong><span>downloads and duplicate checks are working from the wrong place</span></div>
+      <div className="tool-panel-body">
+        {missingPaths.map(item => <p key={`${item.kind}:${item.path}`} className="cookie-status bad" style={{ marginBottom: 8 }}>
+          {item.kind === 'destination' ? 'Downloads are set to land in' : item.kind === 'library' ? 'Your library is set to' : 'Your cookies file is set to'} <b>{item.path}</b>, which no longer exists.
+          {item.kind === 'library' && ' Until this points at your music, every song will look like one you have never downloaded.'}
+          {item.kind === 'cookies' && ' Signed-in downloads are running anonymously instead.'}
+        </p>)}
+        <p className="settings-note">Fix the destination and cookies file under <b>Download options</b> below; music folders live in <b>Settings → Library</b>.</p>
+        <button className="mini-button" onClick={() => { setShowSettings(true); void window.electronAPI.checkDownloadPaths().then(setMissingPaths).catch(() => undefined) }}>Open download options</button>
+      </div>
+    </div>}
+
     <div className="tools-strip">
       {(tools?.tools ?? []).map(tool => <span key={tool.name} className={`tool-chip ${tool.ok ? 'ok' : ''}`} title={tool.path || 'Not found'}><i />{tool.name}{tool.version && <small>{tool.version.length > 14 ? tool.version.slice(0, 14) : tool.version}</small>}</span>)}
       <button className="mini-button" onClick={() => void locateTools()}>Locate tools…</button>
+      <span className={`tool-chip ${tools?.jsRuntime.available ? 'ok' : ''}`} title={tools?.jsRuntime.available ? `${tools.jsRuntime.kind} — solves YouTube's player challenges` : 'No JavaScript engine found. Signed-in downloads will fail with "The page needs to be reloaded."'}><i />JS engine{tools?.jsRuntime.kind && <small>{tools.jsRuntime.kind}</small>}</span>
       <button className="mini-button" disabled={updating || !tools?.tools.find(tool => tool.name === 'yt-dlp')?.ok} onClick={() => void updateYtDlp()}>{updating ? 'Updating…' : 'Update yt-dlp'}</button>
       <span className="spacer" />
       <button className="text-link" onClick={() => setShowSettings(value => !value)}><Icon name="sliders" size={14} /> {showSettings ? 'Hide options' : 'Download options'}</button>
@@ -164,10 +220,10 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
           <div className="inspect-footer">
           {items.some(item => item.alreadyDownloaded) && <p className="dupe-note">{items.filter(item => item.alreadyDownloaded).length} of these {items.length} are already in your library. They are skipped on queueing unless you turn off "Skip songs already downloaded" in settings. <button className="text-link" onClick={() => setItems(current => current.filter(item => !item.alreadyDownloaded))}>Remove them from this list</button></p>}
             <p>{settings?.organize ? `Files go to ${settings.destination} using the "${presets.find(preset => preset.template === settings.pathTemplate)?.label ?? 'custom'}" layout.` : `Files go straight into ${settings?.destination}.`}{settings?.fetchLyrics ? ' Lyrics are fetched from Unison, then AMLL and LRCLIB.' : ''}</p>
-            <button className="accent-button" disabled={!ready} onClick={() => void enqueueAll()}><Icon name="plus" size={15} /> Add {items.length} to queue</button>
+            <button className="accent-button" disabled={!ready || queueing} onClick={() => void enqueueAll()}><Icon name="plus" size={15} /> {queueing ? `Checking ${items.length} against your library…` : `Add ${items.length} to queue`}</button>
           </div>
           <div className="inspect-list">
-            {items.map(item => <div className="inspect-card" key={item.videoId}>
+            {items.slice(0, shownItems).map(item => <div className="inspect-card" key={item.videoId}>
               {item.info.thumbnail ? <img className="thumb" src={item.info.thumbnail} alt="" /> : <div className="thumb" />}
               <div className="inspect-fields">
                 <label><span>Artist</span><input value={item.metadata.artist || ''} onChange={event => editItem(item.videoId, { artist: event.target.value || null, albumArtist: event.target.value.split(/\s*(?:,|&|\+|\bx\b|\bft\.?\b|\bfeat\.?\b)\s*/i)[0] || null })} placeholder="Unknown artist" /></label>
@@ -188,13 +244,26 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
                 <button title="Remove" onClick={() => setItems(current => current.filter(existing => existing.videoId !== item.videoId))}><Icon name="close" size={15} /></button>
               </div>
             </div>)}
+            {items.length > shownItems && <div className="tool-panel-empty">Showing {shownItems} of {items.length}. Queueing adds all of them. <button className="text-link" onClick={() => setShownItems(count => count + PAGE * 4)}>Show more</button></div>}
+          </div>
+        </div>}
+
+        {skipReport && <div className="tool-panel">
+          <div className="tool-panel-head"><strong>Already in your library</strong><div className="row"><span>{skipReport.length} skipped</span><button className="mini-button" onClick={() => setSkipReport(null)}>Dismiss</button></div></div>
+          <div className="dupe-groups">
+            {skipReport.slice(0, 200).map(item => <div className="dupe-file keep" key={`${item.videoId ?? item.url}`} title={item.existingPath}>
+              <Icon name="check" size={14} />
+              <span>{item.artist ? `${item.artist} — ` : ''}{item.title}</span>
+              <em>{item.reason} · {item.existingPath}</em>
+            </div>)}
+            {skipReport.length > 200 && <div className="tool-panel-empty">…and {skipReport.length - 200} more.</div>}
           </div>
         </div>}
 
         <div className="tool-panel">
           <div className="tool-panel-head"><strong>Queue</strong><div className="row"><span>{activeJobs.length} active · {finishedJobs.length} finished</span>{activeJobs.length > 0 && <button className="mini-button" onClick={() => void window.electronAPI.setDownloadsPaused(!paused).then(setPaused)}>{paused ? 'Resume' : 'Pause'}</button>}{failedJobs.length > 0 && <button className="mini-button" onClick={() => void Promise.all(failedJobs.map(job => window.electronAPI.retryDownload(job.id)))}>Retry all failed ({failedJobs.length})</button>}{finishedJobs.length > 0 && <button className="mini-button" onClick={() => void window.electronAPI.clearFinishedDownloads()}>Clear finished</button>}</div></div>
           <div className="queue-list">
-            {[...activeJobs, ...finishedJobs].map(job => {
+            {[...activeJobs, ...finishedJobs].slice(0, shownJobs).map(job => {
               const indeterminate = ['inspecting', 'tagging', 'lyrics', 'organizing', 'converting'].includes(job.status)
               return <div className="queue-row" key={job.id}>
                 {job.info?.thumbnail ? <img className="thumb" src={job.info.thumbnail} alt="" /> : <div className="thumb" />}
@@ -216,6 +285,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
                 </div>
               </div>
             })}
+            {jobs.length > shownJobs && <div className="tool-panel-empty">Showing {shownJobs} of {jobs.length} — the rest are working away in the background. <button className="text-link" onClick={() => setShownJobs(count => count + PAGE * 4)}>Show more</button></div>}
             {!jobs.length && <div className="tool-panel-empty">Nothing queued yet.<br />Inspect a link above, check the artist and title, and add it.</div>}
           </div>
         </div>
@@ -225,7 +295,9 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
         <div className="tool-panel-head"><strong>Download options</strong><span>saved automatically</span></div>
         <div className="tool-panel-body settings-grid">
           <label><span>Format</span><select value={settings.format} onChange={event => patchSettings({ format: event.target.value as AudioFormat })}>{FORMATS.map(format => <option key={format.value} value={format.value}>{format.label} — {format.hint}</option>)}</select></label>
-          <label><span>Quality</span><select value={settings.quality} onChange={event => patchSettings({ quality: event.target.value as AudioQuality })}><option value="best">Best (320k MP3 / 256k AAC)</option><option value="high">High (~192k)</option><option value="medium">Medium (~128k)</option></select></label>
+          {LOSSLESS_PATH.includes(settings.format)
+            ? <div className="field"><span>Quality</span><p className="settings-note" style={{ margin: 0 }}><strong>Best available, untouched.</strong> YouTube's own audio stream is saved exactly as it arrives — no re-encoding, so nothing is lost and there is no conversion step to wait for. Re-encoding is the only thing a quality setting could change, so there is nothing to choose here.</p></div>
+            : <label><span>Re-encode quality</span><select value={settings.quality} onChange={event => patchSettings({ quality: event.target.value as AudioQuality })}><option value="best">Best (320k MP3)</option><option value="high">High (~192k)</option><option value="medium">Medium (~128k)</option></select><small className="settings-note">{settings.format.toUpperCase()} is not a format YouTube serves, so every song is decoded and re-encoded on the way in. That always costs a little quality and a lot of time. M4A keeps the original stream instead.</small></label>}
           <div className="field"><span>Destination</span><div className="path-field"><input type="text" value={settings.destination} onChange={event => patchSettings({ destination: event.target.value })} /><button onClick={() => void window.electronAPI.chooseDownloadFolder(settings.destination).then(folder => { if (folder) patchSettings({ destination: folder }) })}>Browse</button></div></div>
           <label><span>Folder layout</span><select value={presets.some(preset => preset.template === settings.pathTemplate) ? settings.pathTemplate : 'custom'} onChange={event => { if (event.target.value !== 'custom') patchSettings({ pathTemplate: event.target.value }) }}>{presets.map(preset => <option key={preset.id} value={preset.template}>{preset.label}</option>)}<option value="custom">Custom template</option></select></label>
           <label><span>Template</span><input type="text" value={settings.pathTemplate} onChange={event => patchSettings({ pathTemplate: event.target.value })} spellCheck={false} /></label>
@@ -238,7 +310,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
             <label className="toggle"><input type="checkbox" checked={settings.embedLyrics} disabled={!settings.fetchLyrics} onChange={event => patchSettings({ embedLyrics: event.target.checked })} /><span><strong>Embed lyrics in the song file</strong><small>Writes the words into the file's own tags (ID3 USLT + SYLT for MP3, a lyrics tag elsewhere) so any player shows them. The synced sidecar stays for Lyrigen's word-by-word view.</small></span></label>
             <label className="toggle"><input type="checkbox" checked={settings.embedThumbnail} onChange={event => patchSettings({ embedThumbnail: event.target.checked })} /><span><strong>Embed thumbnail as cover art</strong></span></label>
             <label className="toggle"><input type="checkbox" checked={settings.writeCoverFile} onChange={event => patchSettings({ writeCoverFile: event.target.checked })} /><span><strong>Also save cover.jpg in the folder</strong></span></label>
-            <label className="toggle"><input type="checkbox" checked={settings.skipDuplicates} onChange={event => patchSettings({ skipDuplicates: event.target.checked })} /><span><strong>Skip songs already downloaded</strong><small>Matched by YouTube video id against finished downloads whose file still exists. A playlist that lists the same song twice only downloads it once either way.</small></span></label>
+            <label className="toggle"><input type="checkbox" checked={settings.skipDuplicates} onChange={event => patchSettings({ skipDuplicates: event.target.checked })} /><span><strong>Skip songs you already have</strong><small>Checked against every folder in your library, not just this app's downloads — by YouTube video id first, then artist + song + edit, then song name and length when the uploader is posing as the artist. A playlist that lists the same song twice only downloads it once either way.</small></span></label>
             <label className="toggle"><input type="checkbox" checked={settings.autoRetry} onChange={event => patchSettings({ autoRetry: event.target.checked })} /><span><strong>Retry failures automatically</strong><small>403s, throttling and dropped connections are retried after 15s, 60s then 180s. With no network the queue simply waits instead of failing every song.</small></span></label>
             <label className="toggle"><input type="checkbox" checked={settings.useMusicBrainz} onChange={event => patchSettings({ useMusicBrainz: event.target.checked })} /><span><strong>Verify with MusicBrainz</strong><small>One extra request per song (≈1 s) to confirm artist/title and pick up album, year and genre.</small></span></label>
           </div>

@@ -107,6 +107,21 @@ export interface DownloadSettings extends DownloadOptions {
   inboxEnabled: boolean
 }
 
+/** A song that was not queued, and what Lyrigen already has in its place. */
+export interface SkippedDownload {
+  title: string
+  artist: string | null
+  url: string
+  videoId: string | null
+  existingPath: string
+  reason: string
+}
+
+export interface EnqueueResult {
+  created: DownloadJob[]
+  skipped: SkippedDownload[]
+}
+
 export interface InspectResult {
   ok: boolean
   error?: string
@@ -143,6 +158,12 @@ export type OrganizeProgress = { id: string; status: 'moving' | 'tagging' | 'lyr
 type Listener = (event: 'job' | 'jobs' | 'organize' | 'inbox', payload: unknown) => void
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.aiff', '.aif', '.webm', '.mka'])
+/** Statuses that mean "this song is already being dealt with". */
+/** How many jobs the queue file keeps. Well above any single paste. */
+const MAX_PERSISTED_JOBS = 20_000
+/** Statuses a job never leaves on its own. */
+const SETTLED: ReadonlySet<JobStatus> = new Set<JobStatus>(['done', 'error', 'cancelled'])
+const IN_FLIGHT: ReadonlySet<JobStatus> = new Set<JobStatus>(['queued', 'inspecting', 'downloading', 'converting', 'tagging', 'lyrics', 'organizing', 'waiting', 'paused'])
 const SIDECAR_EXTENSIONS = ['.lrc', '.ttml', '.yrc', '.txt', '.jpg', '.jpeg', '.png', '.webp', '.lyrigen-metadata.json']
 
 function defaultDestination() {
@@ -177,6 +198,80 @@ export function defaultSettings(): DownloadSettings {
 
 interface StoreShape { settings: DownloadSettings; jobs: DownloadJob[]; organizeJournal: Array<{ at: string; moves: Array<{ from: string; to: string }> }> }
 
+// ---------------------------------------------------------------------------
+// "Do I already have this?" — the library index
+// ---------------------------------------------------------------------------
+
+/**
+ * One song Lyrigen already has, from wherever it was found.
+ *
+ * `duration` and a tag-derived `artist` are only present for files the library
+ * scan has read; a plain folder walk fills in what the path says and leaves the
+ * rest null. Both are useful, so the index takes either.
+ */
+export interface LibraryEntry {
+  audioPath: string
+  title: string
+  artist: string | null
+  duration: number | null
+}
+
+/**
+ * Fold a name down to the part that identifies it.
+ *
+ * Case, punctuation, accents and spacing all vary between a YouTube title and
+ * a tag written years ago, and none of that changes which song it is. The
+ * Unicode classes matter: this library has Japanese and Chinese titles in it,
+ * and an `[^a-z0-9]` filter would erase them to the empty string and make every
+ * one of them look like a duplicate of the others.
+ */
+function fold(value: string | null | undefined) {
+  return (value ?? '')
+    .toLocaleLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+/** Artist + song + which edit it is. Two files agreeing on all three are the same download. */
+function songKey(artist: string | null | undefined, title: string, variant: SongVariant | null) {
+  return `${fold(primaryArtist(artist ?? null))}|${fold(title)}|${variant ?? ''}`
+}
+
+/** Song + edit, for when the artist cannot be trusted on one side or the other. */
+function titleKey(title: string, variant: SongVariant | null) {
+  return `${fold(title)}|${variant ?? ''}`
+}
+
+/**
+ * The keys that say which song a file is, strongest first.
+ *
+ * Shared with the duplicate cleanup so "already have it" and "this is a
+ * duplicate" can never disagree — one of them saying yes while the other says
+ * no is how you end up with a library full of pairs.
+ */
+export function songIdentity(audioPath: string, title: string, artist: string | null) {
+  const { name, videoId } = stripYoutubeIdSuffix(path.parse(audioPath).name)
+  const parsed = parseSongName(title || name)
+  const cleanTitle = parsed.title || title || name
+  return {
+    videoId,
+    song: songKey(artist || parsed.artist || path.basename(path.dirname(audioPath)), cleanTitle, parsed.variant),
+    title: titleKey(cleanTitle, parsed.variant),
+    cleanTitle,
+  }
+}
+
+interface LibraryIndex {
+  byVideoId: Map<string, string>
+  bySong: Map<string, string>
+  byTitle: Map<string, Array<{ path: string; duration: number | null }>>
+  count: number
+}
+
+const EMPTY_INDEX: LibraryIndex = { byVideoId: new Map(), bySong: new Map(), byTitle: new Map(), count: 0 }
+
 export class Downloader {
   private readonly file: string
   private state: StoreShape
@@ -184,10 +279,23 @@ export class Downloader {
   private children = new Map<string, ChildProcess>()
   private running = new Set<string>()
   private knownArtists: () => Iterable<string> = () => []
+  private libraryFolders: () => string[] = () => []
+  private libraryEntries: () => Iterable<LibraryEntry> = () => []
+  private libraryIndex: Promise<LibraryIndex> | null = null
   private inboxWatcher: fs.FSWatcher | null = null
   private inboxTimers = new Map<string, NodeJS.Timeout>()
   private paused = false
   private retryTimer: NodeJS.Timeout | null = null
+  private persistTimer: NodeJS.Timeout | null = null
+  private persistPending = false
+  /**
+   * Where the last scan for runnable work got to.
+   *
+   * With thousands of jobs, starting from the top every time a download
+   * finishes makes the queue quadratic. The cursor only ever advances past jobs
+   * that are settled for good; anything that returns to `queued` rewinds it.
+   */
+  private queueCursor = 0
   private musicBrainz: ((request: { title: string; artist?: string; album?: string; duration?: number | null }) => Promise<{ found: boolean; metadata?: Partial<{ title: string; artist: string; album: string; albumArtist: string; year: string; genre: string }>; confidence?: 'high' | 'medium' | 'low' | null }>) | null = null
 
   constructor(userDataPath: string) {
@@ -207,6 +315,85 @@ export class Downloader {
   setKnownArtistsProvider(provider: () => Iterable<string>) { this.knownArtists = provider }
   /** Optional MusicBrainz verifier, injected from main.ts so this module stays free of catalog code. */
   setMusicBrainzLookup(lookup: NonNullable<Downloader['musicBrainz']>) { this.musicBrainz = lookup }
+  /** Folders that already hold music: the library roots plus the download destination. */
+  setLibraryFoldersProvider(provider: () => string[]) { this.libraryFolders = provider; this.libraryIndex = null }
+  /** Songs the library scan has already read tags for. Optional — the folder walk covers the rest. */
+  setLibraryEntriesProvider(provider: () => Iterable<LibraryEntry>) { this.libraryEntries = provider; this.libraryIndex = null }
+  /** Call when files move, arrive or are deleted, so the next check rebuilds. */
+  invalidateLibraryIndex() { this.libraryIndex = null }
+
+  /**
+   * Index everything already on disk, so a playlist can be checked against it.
+   *
+   * Built once per queueing run and then reused: a 5,000-track playlist means
+   * 5,000 lookups, and walking the folders for each one would take longer than
+   * the downloads. The walk is name-only — no ffprobe — so ten thousand files
+   * cost about a second.
+   *
+   * Three keys come out of it, strongest first: the YouTube id (yt-dlp leaves
+   * it in the file name), artist + song + edit, and song + edit on its own for
+   * the cases where one side's artist is really the uploader's channel name.
+   */
+  private async buildLibraryIndex(extraFolders: string[]): Promise<LibraryIndex> {
+    const byVideoId = new Map<string, string>()
+    const bySong = new Map<string, string>()
+    const byTitle = new Map<string, Array<{ path: string; duration: number | null }>>()
+    let count = 0
+
+    const remember = (entry: LibraryEntry) => {
+      count += 1
+      const parsedName = stripYoutubeIdSuffix(path.parse(entry.audioPath).name)
+      if (parsedName.videoId && !byVideoId.has(parsedName.videoId)) byVideoId.set(parsedName.videoId, entry.audioPath)
+      // The folder above a song is almost always its artist, and the tag may
+      // disagree with the file name, so every spelling gets indexed rather than
+      // betting on one of them being the tidy one.
+      const folderArtist = path.basename(path.dirname(entry.audioPath))
+      const grandparent = path.basename(path.dirname(path.dirname(entry.audioPath)))
+      for (const raw of new Set([entry.title, parsedName.name].filter(Boolean))) {
+        const parsed = parseSongName(raw)
+        const title = parsed.title || raw
+        const variant = parsed.variant
+        for (const artist of new Set([entry.artist, parsed.artist, folderArtist, grandparent].filter(Boolean))) {
+          const key = songKey(artist, title, variant)
+          if (!bySong.has(key)) bySong.set(key, entry.audioPath)
+        }
+        const loose = titleKey(title, variant)
+        const bucket = byTitle.get(loose)
+        if (bucket) { if (bucket.length < 8) bucket.push({ path: entry.audioPath, duration: entry.duration }) }
+        else byTitle.set(loose, [{ path: entry.audioPath, duration: entry.duration }])
+      }
+    }
+
+    const seen = new Set<string>()
+    for (const entry of this.libraryEntries()) {
+      const key = entry.audioPath.toLocaleLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      remember(entry)
+    }
+    const folders = Array.from(new Set([...this.libraryFolders(), ...extraFolders].filter(Boolean)))
+    for (const folder of folders) {
+      for (const filePath of await collectAudio(folder)) {
+        const key = filePath.toLocaleLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        remember({ audioPath: filePath, title: path.parse(filePath).name, artist: null, duration: null })
+      }
+    }
+    return { byVideoId, bySong, byTitle, count }
+  }
+
+  private libraryIndexFor(extraFolders: string[]) {
+    if (!this.libraryIndex) this.libraryIndex = this.buildLibraryIndex(extraFolders).catch(error => {
+      console.warn('Could not index the library for duplicate checks', error)
+      this.libraryIndex = null
+      return EMPTY_INDEX
+    })
+    return this.libraryIndex
+  }
+
+  /** How many songs the duplicate check is currently aware of, for the UI. */
+  async libraryIndexSize(extraFolders: string[] = []) { return (await this.libraryIndexFor(extraFolders)).count }
 
   subscribe(listener: Listener) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private emit(event: Parameters<Listener>[0], payload: unknown) { for (const listener of this.listeners) listener(event, payload) }
@@ -218,11 +405,42 @@ export class Downloader {
     } catch { return { settings: defaultSettings(), jobs: [], organizeJournal: [] } }
   }
 
-  private persist() {
+  /**
+   * Write the queue to disk, at most once every couple of seconds.
+   *
+   * Every finished job used to rewrite the whole file. That costs nothing for
+   * twenty songs and is brutal for five thousand: the file is megabytes, two
+   * dozen downloads finish at once, and the main process ends up re-serialising
+   * a list nobody is reading. Coalescing keeps the guarantee that matters — the
+   * queue survives a restart — at a fraction of the cost. Pass `immediate` at
+   * the moments worth paying for it: queueing, settings, shutdown.
+   */
+  private persist(immediate = false) {
+    if (immediate) {
+      if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null }
+      this.persistPending = false
+      this.writeState()
+      return
+    }
+    this.persistPending = true
+    if (this.persistTimer) return
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null
+      if (!this.persistPending) return
+      this.persistPending = false
+      this.writeState()
+    }, 2000)
+  }
+
+  private writeState() {
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
-      const snapshot = { ...this.state, jobs: this.state.jobs.slice(-300) }
-      fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(snapshot, null, 2), 'utf8')
+      // The old cap was 300, which quietly threw away all but the tail of a
+      // large playlist the moment anything was saved — so a restart halfway
+      // through lost the queue. This one sits above anything anyone would
+      // paste, and the file is no longer pretty-printed to pay for it.
+      const snapshot = { ...this.state, jobs: this.state.jobs.slice(-MAX_PERSISTED_JOBS) }
+      fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(snapshot), 'utf8')
       fs.renameSync(`${this.file}.tmp`, this.file)
     } catch (error) { console.warn('Could not persist downloads state', error) }
   }
@@ -338,13 +556,13 @@ export class Downloader {
           seen.add(entry.id)
           const entryInfo: VideoInfo = { ...info, id: entry.id, title: entry.title, webpageUrl: entry.url, uploader: entry.uploader, channel: entry.uploader, duration: entry.duration, isPlaylist: false, entries: undefined, artist: null, track: null, album: null, thumbnail: `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg` }
           const metadata = this.metadataFromInfo(entryInfo)
-          items.push({ url: entry.url, videoId: entry.id, info: entryInfo, metadata, proposedPath: this.proposePath(metadata, settings.format === 'best' ? 'm4a' : settings.format, settings.destination, settings.pathTemplate, entry.id), alreadyDownloaded: this.findExisting(entry.id) })
+          items.push({ url: entry.url, videoId: entry.id, info: entryInfo, metadata, proposedPath: this.proposePath(metadata, settings.format === 'best' ? 'm4a' : settings.format, settings.destination, settings.pathTemplate, entry.id), alreadyDownloaded: (await this.existingFileFor(metadata, entry.id, settings, entry.duration))?.path ?? null })
         }
         return { ok: true, items, playlistTitle: info.playlistTitle }
       }
       let metadata = this.metadataFromInfo(info)
       if (settings.useMusicBrainz) metadata = await this.verifyWithMusicBrainz(metadata, info.duration)
-      return { ok: true, items: [{ url: info.webpageUrl, videoId: info.id, info, metadata, proposedPath: this.proposePath(metadata, settings.format === 'best' ? 'm4a' : settings.format, settings.destination, settings.pathTemplate, info.id), alreadyDownloaded: this.findExisting(info.id) }] }
+      return { ok: true, items: [{ url: info.webpageUrl, videoId: info.id, info, metadata, proposedPath: this.proposePath(metadata, settings.format === 'best' ? 'm4a' : settings.format, settings.destination, settings.pathTemplate, info.id), alreadyDownloaded: (await this.existingFileFor(metadata, info.id, settings, info.duration))?.path ?? null }] }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Could not read that link.', items: [] }
     }
@@ -364,38 +582,66 @@ export class Downloader {
    * audio extension, since the chosen format may have changed since — and for
    * a sibling carrying the same video id.
    */
-  private existingFileFor(metadata: SongMetadata, videoId: string | null, options: DownloadOptions) {
+  private async existingFileFor(metadata: SongMetadata, videoId: string | null, options: DownloadOptions, duration: number | null = null): Promise<{ path: string; reason: string } | null> {
+    // 1. This exact video, finished earlier in this install.
     if (videoId) {
       const known = this.findExisting(videoId)
-      if (known) return known
+      if (known) return { path: known, reason: 'downloaded before' }
     }
-    for (const extension of AUDIO_EXTENSIONS) {
-      const candidate = this.proposePath(metadata, extension, options.destination, options.pathTemplate, videoId)
-      if (fs.existsSync(candidate)) return candidate
-    }
-    // yt-dlp names keep the id in brackets; catch those too.
+    // 2. Where this song would land, in case the history was cleared.
+    const proposed = this.proposePath(metadata, options.format === 'best' ? '.m4a' : `.${options.format}`, options.destination, options.pathTemplate, videoId)
+    if (fs.existsSync(proposed)) return { path: proposed, reason: 'already in the destination folder' }
+
+    const index = await this.libraryIndexFor([options.destination])
+    // 3. The same video id, wherever it was filed — yt-dlp leaves it in the name.
     if (videoId) {
-      const folder = path.dirname(this.proposePath(metadata, '.mp3', options.destination, options.pathTemplate, videoId))
-      try {
-        const match = fs.readdirSync(folder).find(file => file.includes(videoId) && AUDIO_EXTENSIONS.has(path.extname(file).toLocaleLowerCase()))
-        if (match) return path.join(folder, match)
-      } catch { /* folder does not exist yet */ }
+      const byId = index.byVideoId.get(videoId)
+      if (byId) return { path: byId, reason: 'same YouTube video' }
+    }
+    // 4. Same artist, same song, same edit.
+    const bySong = index.bySong.get(songKey(metadata.artist, metadata.title, metadata.variant))
+    if (bySong) return { path: bySong, reason: 'same artist and song' }
+    // 5. Same song name, when the "artist" on this side is really an uploader.
+    //    Length settles it when both sides know it; otherwise this only fires
+    //    for a guessed artist, so a confident artist mismatch is never skipped.
+    const loose = index.byTitle.get(titleKey(metadata.title, metadata.variant))
+    if (loose?.length) {
+      const sameLength = duration != null ? loose.find(item => item.duration != null && Math.abs(item.duration - duration) <= 5) : undefined
+      if (sameLength) return { path: sameLength.path, reason: 'same song and length' }
+      if (!metadata.artist || metadata.confidence === 'low') return { path: loose[0].path, reason: 'same song name' }
     }
     return null
   }
 
-  enqueue(items: Array<{ url: string; videoId?: string | null; metadata?: SongMetadata | null; info?: DownloadJob['info'] }>, options: Partial<DownloadOptions> = {}) {
+  /**
+   * Add songs to the queue, leaving out anything already on disk.
+   *
+   * Scanning the whole job list once per item is fine for a handful and
+   * quadratic for a playlist, so the ids already in flight live in a set that
+   * this run adds to as it goes — which also means a playlist listing the same
+   * song twice queues it once.
+   */
+  async enqueue(items: Array<{ url: string; videoId?: string | null; metadata?: SongMetadata | null; info?: DownloadJob['info'] }>, options: Partial<DownloadOptions> = {}): Promise<EnqueueResult> {
     const jobOptions: DownloadOptions = { ...this.state.settings, ...options }
     const created: DownloadJob[] = []
-    let skipped = 0
+    const skipped: SkippedDownload[] = []
+    const inFlight = new Set<string>()
+    for (const job of this.state.jobs) if (job.videoId && IN_FLIGHT.has(job.status)) inFlight.add(job.videoId)
     for (const item of items) {
       const url = item.url.trim()
       if (!url) continue
       const videoId = item.videoId ?? url.match(/(?:v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/)?.[1] ?? null
       // Already queued or running: never the same video twice at once.
-      if (videoId && this.state.jobs.some(job => job.videoId === videoId && ['queued', 'inspecting', 'downloading', 'converting', 'tagging', 'lyrics', 'organizing', 'waiting', 'paused'].includes(job.status))) continue
-      // Already on disk from an earlier run: skip unless asked not to.
-      if (jobOptions.skipDuplicates !== false && item.metadata && this.existingFileFor(item.metadata, videoId, jobOptions)) { skipped += 1; continue }
+      if (videoId && inFlight.has(videoId)) continue
+      // Already on disk, here or anywhere else in the library: skip unless asked not to.
+      if (jobOptions.skipDuplicates !== false && item.metadata) {
+        const existing = await this.existingFileFor(item.metadata, videoId, jobOptions, item.info?.duration ?? null)
+        if (existing) {
+          skipped.push({ title: item.metadata.title, artist: item.metadata.artist, url, videoId, existingPath: existing.path, reason: existing.reason })
+          continue
+        }
+      }
+      if (videoId) inFlight.add(videoId)
       const job: DownloadJob = {
         id: crypto.randomUUID(), url, videoId, status: 'queued', stage: 'Waiting', progress: 0, speed: null, eta: null, totalSize: null, error: null,
         createdAt: new Date().toISOString(), finishedAt: null, info: item.info ?? null, metadata: item.metadata ?? null,
@@ -404,10 +650,10 @@ export class Downloader {
       this.state.jobs.push(job)
       created.push(job)
     }
-    this.persist()
+    this.persist(true)
     this.emit('jobs', this.jobs)
     void this.pump()
-    return created.map(job => ({ ...job }))
+    return { created: created.map(job => ({ ...job })), skipped }
   }
 
   cancel(id: string) {
@@ -423,6 +669,7 @@ export class Downloader {
     const job = this.state.jobs.find(item => item.id === id)
     if (!job || this.running.has(id)) return
     Object.assign(job, { status: 'queued', stage: 'Waiting', progress: 0, speed: null, eta: null, error: null, finishedAt: null })
+    this.queueCursor = 0
     this.persist(); this.emit('job', { ...job }); void this.pump()
   }
 
@@ -457,6 +704,7 @@ export class Downloader {
       }
     } else {
       for (const job of this.state.jobs) if (job.status === 'paused') this.update(job, { status: 'queued', stage: 'Waiting' })
+      this.queueCursor = 0
       void this.pump()
     }
     this.persist()
@@ -494,6 +742,7 @@ export class Downloader {
         if (job.status !== 'waiting' || !job.retryAt) continue
         if (new Date(job.retryAt).getTime() > now) continue
         this.update(job, { status: 'queued', stage: 'Waiting', retryAt: null })
+        this.queueCursor = 0
         promoted = true
       }
       if (!this.state.jobs.some(job => job.status === 'waiting') && this.retryTimer) {
@@ -511,7 +760,12 @@ export class Downloader {
     // a fast connection is the limit rather than this number.
     const limit = Math.max(1, Math.min(24, this.state.settings.concurrency || 2))
     while (this.running.size < limit) {
-      const next = this.state.jobs.find(job => job.status === 'queued' && !this.running.has(job.id))
+      while (this.queueCursor < this.state.jobs.length && SETTLED.has(this.state.jobs[this.queueCursor].status)) this.queueCursor += 1
+      let next: DownloadJob | undefined
+      for (let index = this.queueCursor; index < this.state.jobs.length; index += 1) {
+        const candidate = this.state.jobs[index]
+        if (candidate.status === 'queued' && !this.running.has(candidate.id)) { next = candidate; break }
+      }
       if (!next) break
       this.running.add(next.id)
       void this.process(next.id).finally(() => { this.running.delete(next.id); this.children.delete(next.id); void this.pump() })
@@ -815,6 +1069,7 @@ export class Downloader {
   }
 
   dispose() {
+    this.persist(true)
     if (this.inboxWatcher) this.inboxWatcher.close()
     for (const timer of this.inboxTimers.values()) clearTimeout(timer)
     for (const child of this.children.values()) { try { child.kill() } catch { /* already gone */ } }

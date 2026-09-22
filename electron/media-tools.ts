@@ -29,6 +29,8 @@ export interface ToolsStatus {
   tools: ToolStatus[]
   searchedFolders: string[]
   ready: boolean
+  /** The JavaScript engine yt-dlp will solve YouTube's player challenges with. */
+  jsRuntime: JsRuntimeStatus
 }
 
 let configuredFolder: string | null = null
@@ -89,12 +91,14 @@ export interface RunOptions {
   onSpawn?: (child: ChildProcess) => void
   /** Cap on captured output so a chatty ffmpeg run cannot balloon memory. */
   maxCapture?: number
+  /** Extra environment for the child, merged over the current process env. */
+  env?: NodeJS.ProcessEnv
 }
 
 /** Run a tool to completion, streaming lines to `onLine`. Never throws for a non-zero exit; inspect `code`. */
 export function run(executable: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
   return new Promise(resolve => {
-    const child = spawn(executable, args, { cwd: options.cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(executable, args, { cwd: options.cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: options.env ? { ...process.env, ...options.env } : undefined })
     options.onSpawn?.(child)
     const cap = options.maxCapture ?? 400_000
     let stdout = '', stderr = ''
@@ -143,7 +147,7 @@ export async function toolsStatus(): Promise<ToolsStatus> {
     return { name, path: resolved, version, ok: Boolean(resolved) }
   }))
   const byName = Object.fromEntries(tools.map(tool => [tool.name, tool.ok])) as Record<ToolName, boolean>
-  return { tools, searchedFolders: candidateFolders(), ready: byName['yt-dlp'] && byName.ffmpeg }
+  return { tools, searchedFolders: candidateFolders(), ready: byName['yt-dlp'] && byName.ffmpeg, jsRuntime: jsRuntimeStatus() }
 }
 
 /** Folder ffmpeg + ffprobe live in, for `yt-dlp --ffmpeg-location`. */
@@ -315,6 +319,69 @@ export function setCookieSource(source: CookieSource, profile = '', file = '') {
 export function getCookieSource() { return cookieSource }
 
 /**
+ * A JavaScript engine for yt-dlp to solve YouTube's player challenges with.
+ *
+ * YouTube signs its media URLs with a challenge that only a real JS engine can
+ * answer. yt-dlp ships the solver script but no engine, and enables Deno alone
+ * by default, so on a machine without Deno every *signed-in* request comes back
+ * as "The page needs to be reloaded." — which looks exactly like a broken
+ * cookies.txt and sends people hunting in the wrong place. (Anonymous requests
+ * dodge it by falling back to a client that needs no signature, which is why
+ * downloads work until you add cookies.)
+ *
+ * Node is what we look for, because Lyrigen is an Electron app: worst case the
+ * bundled Electron binary is itself a Node build, and setting
+ * ELECTRON_RUN_AS_NODE on the yt-dlp process makes it behave as one when
+ * yt-dlp invokes it.
+ */
+export interface JsRuntimeStatus { available: boolean; kind: 'deno' | 'node' | 'bun' | 'electron' | null; path: string | null }
+
+let jsRuntime: JsRuntimeStatus | null = null
+
+function locateExecutable(names: string[]) {
+  const suffixes = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
+  for (const name of names) {
+    for (const folder of (process.env.PATH || '').split(path.delimiter)) {
+      if (!folder) continue
+      for (const suffix of suffixes) {
+        const candidate = path.join(folder, `${name}${suffix}`)
+        try { if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate } catch { /* unreadable PATH entry */ }
+      }
+    }
+  }
+  return null
+}
+
+export function jsRuntimeStatus(): JsRuntimeStatus {
+  if (jsRuntime) return jsRuntime
+  const deno = locateExecutable(['deno'])
+  if (deno) return (jsRuntime = { available: true, kind: 'deno', path: deno })
+  const node = locateExecutable(['node'])
+  if (node) return (jsRuntime = { available: true, kind: 'node', path: node })
+  const bun = locateExecutable(['bun'])
+  if (bun) return (jsRuntime = { available: true, kind: 'bun', path: bun })
+  // Electron is a Node build wearing a different name; ELECTRON_RUN_AS_NODE (set
+  // on the yt-dlp process, inherited by whatever it spawns) uncovers it.
+  try {
+    if (process.execPath && fs.existsSync(process.execPath)) return (jsRuntime = { available: true, kind: 'electron', path: process.execPath })
+  } catch { /* fall through */ }
+  return (jsRuntime = { available: false, kind: null, path: null })
+}
+
+/** Tell yt-dlp which engine to use. Deno is already its default, so it needs no flag. */
+function jsRuntimeArgs() {
+  const runtime = jsRuntimeStatus()
+  if (!runtime.available || runtime.kind === 'deno') return []
+  const name = runtime.kind === 'electron' ? 'node' : runtime.kind
+  return ['--js-runtimes', `${name}:${runtime.path}`]
+}
+
+/** The environment yt-dlp runs in, so an Electron binary used as the JS engine behaves as Node. */
+function ytDlpEnv(): NodeJS.ProcessEnv | undefined {
+  return jsRuntimeStatus().kind === 'electron' ? { ELECTRON_RUN_AS_NODE: '1' } : undefined
+}
+
+/**
  * How yt-dlp is told to authenticate.
  *
  * A cookies.txt file wins when one is set, because it is the only method that
@@ -324,10 +391,31 @@ export function getCookieSource() { return cookieSource }
  * search paths, so `--cookies-from-browser opera:<path>` takes an explicit
  * profile directory.
  */
-function authArgs() {
-  if (cookieFile) return ['--cookies', cookieFile]
+function authArgs(enabled = true) {
+  if (!enabled) return []
+  // A cookies.txt that has been moved, renamed or cleared out of Downloads is
+  // worse than none at all: yt-dlp takes the path, fails to open it, and the
+  // error says nothing about cookies. Fall through to anonymous instead.
+  if (cookieFile && fs.existsSync(cookieFile)) return ['--cookies', cookieFile]
   if (cookieSource === 'none') return []
   return ['--cookies-from-browser', cookieProfile ? `${cookieSource}:${cookieProfile}` : cookieSource]
+}
+
+/** Is Lyrigen configured to send a signed-in session at all? */
+function hasCookies() { return Boolean(cookieFile) || cookieSource !== 'none' }
+
+/**
+ * Failures where dropping the cookies is worth a second try.
+ *
+ * A signed-in request goes down a stricter path than an anonymous one: it needs
+ * the player challenge solved, and a stale or partial cookie export makes
+ * YouTube answer with an extraction error rather than "please sign in". Most
+ * music is public, so falling back to no cookies turns those into a download
+ * instead of a red row. The reverse case — genuinely needing a login — is
+ * caught by needsCookies() and never reaches here.
+ */
+function worthRetryingWithoutCookies(message: string) {
+  return /page needs to be reloaded|failed to extract|player response|unable to extract|nsig|signature|precondition check failed|content isn.t available|this video is unavailable|no video formats|only images are available/i.test(message)
 }
 
 /**
@@ -413,11 +501,19 @@ export function needsCookies(message: string) {
 export async function inspectUrl(url: string, options: { allowPlaylist?: boolean } = {}): Promise<VideoInfo> {
   const ytDlp = resolveTool('yt-dlp')
   if (!ytDlp) throw new Error('yt-dlp was not found. Point Lyrigen at the folder that contains yt-dlp.exe in Downloads → Tools.')
-  const args = [...ytDlpCommon, ...authArgs(), '--dump-single-json', '--skip-download']
-  if (options.allowPlaylist) args.push('--flat-playlist', '--yes-playlist')
-  else args.push('--no-playlist')
-  args.push(url)
-  const result = await run(ytDlp, args, { timeoutMs: 90_000, maxCapture: 12_000_000 })
+  const build = (withCookies: boolean) => {
+    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--dump-single-json', '--skip-download', '--extractor-retries', '3', '--socket-timeout', '30']
+    if (options.allowPlaylist) args.push('--flat-playlist', '--yes-playlist')
+    else args.push('--no-playlist')
+    args.push(url)
+    return args
+  }
+  // A 5,000-track playlist is several megabytes of JSON and takes minutes to
+  // walk, so the budget here is sized for the largest thing someone might
+  // paste rather than for a single song.
+  const runOptions = { timeoutMs: options.allowPlaylist ? 20 * 60_000 : 120_000, maxCapture: 256_000_000, env: ytDlpEnv() }
+  let result = await run(ytDlp, build(true), runOptions)
+  if (result.code !== 0 && hasCookies() && worthRetryingWithoutCookies(String(result.stderr))) result = await run(ytDlp, build(false), runOptions)
   if (result.code !== 0) throw new Error(cleanYtDlpError(result.stderr) || 'yt-dlp could not read that link.')
   const info = JSON.parse(result.stdout.replace(/^\uFEFF/, '')) as Record<string, unknown>
   const type = String(info._type ?? 'video')
@@ -492,6 +588,36 @@ export interface DownloadOutcome {
  * so the organiser step can rename it cleanly afterwards; the thumbnail is
  * kept as a sidecar so it can become cover.jpg if the person wants that.
  */
+/**
+ * Which stream to ask YouTube for, given where it is going to end up.
+ *
+ * The same song is offered as Opus (webm) and as AAC (m4a) at near-identical
+ * bitrates, and plain `bestaudio` prefers Opus. Taking Opus and then converting
+ * to M4A re-encodes lossy audio into lossy audio and *loses* bitrate — measured
+ * on a 129 kbps Opus stream, the resulting M4A came out at 114 kbps. Asking for
+ * the stream that already matches the target container makes yt-dlp skip the
+ * conversion entirely ("Not converting audio; file is already in target
+ * format"): better sounding, and quicker, since no ffmpeg pass runs at all.
+ *
+ * MP3 and FLAC have no matching YouTube stream, so those re-encode whatever the
+ * best source is and there is nothing to gain by being fussy.
+ */
+function audioFormatSelector(format: AudioFormat) {
+  if (format === 'm4a') return 'bestaudio[acodec^=mp4a]/bestaudio[ext=m4a]/bestaudio/best'
+  if (format === 'opus') return 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best'
+  return 'bestaudio/best'
+}
+
+/**
+ * Let yt-dlp ride out its own hiccups before the queue has to.
+ *
+ * Retrying inside one process is far cheaper than failing the job and
+ * re-extracting the video minutes later, and it matters most on the long runs —
+ * a few thousand songs will meet a dropped fragment or a throttled socket
+ * whatever the connection is like.
+ */
+const RESILIENCE_ARGS = ['--retries', '10', '--fragment-retries', '10', '--extractor-retries', '3', '--socket-timeout', '30', '--concurrent-fragments', '4']
+
 export async function downloadAudio(url: string, outputDir: string, options: { format: AudioFormat; quality: AudioQuality; embedThumbnail: boolean; onProgress: (progress: DownloadProgress) => void; onSpawn: (child: ChildProcess) => void }): Promise<DownloadOutcome> {
   const ytDlp = resolveTool('yt-dlp')
   const ffmpegDir = ffmpegLocation()
@@ -499,25 +625,38 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
   if (!ffmpegDir) throw new Error('ffmpeg was not found; it is needed to extract and tag audio.')
   await fs.promises.mkdir(outputDir, { recursive: true })
   const template = path.join(outputDir, '%(id)s.%(ext)s')
-  const args = [...ytDlpCommon, ...authArgs(), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', 'bestaudio/best', '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
-  if (options.format !== 'best') args.push('--audio-format', options.format)
-  args.push('--audio-quality', options.quality === 'best' ? '0' : options.quality === 'high' ? '2' : '5')
-  if (options.embedThumbnail) args.push('--embed-thumbnail')
-  args.push(url)
   let finalPath = null as string | null
   let stage: DownloadProgress['stage'] = 'downloading'
-  const result = await run(ytDlp, args, {
-    timeoutMs: 60 * 60_000,
-    onSpawn: options.onSpawn,
-    onLine: line => {
-      const progress = line.match(/\[download\]\s+([\d.]+)%(?:\s+of\s+~?\s*(\S+))?(?:\s+at\s+(\S+))?(?:\s+ETA\s+(\S+))?/)
-      if (progress) { options.onProgress({ percent: Number(progress[1]), totalSize: progress[2] ?? null, speed: progress[3] ?? null, eta: progress[4] ?? null, stage }); return }
-      if (/\[ExtractAudio\]|\[ffmpeg\]/.test(line)) { stage = 'converting'; options.onProgress({ percent: 100, totalSize: null, speed: null, eta: null, stage }) }
-      if (/\[EmbedThumbnail\]|\[Metadata\]/.test(line)) { stage = 'embedding'; options.onProgress({ percent: 100, totalSize: null, speed: null, eta: null, stage }) }
-      const destination = line.match(/\[ExtractAudio\] Destination:\s+(.+)$/) || line.match(/\[download\] Destination:\s+(.+)$/) || line.match(/\[download\]\s+(.+?) has already been downloaded/)
-      if (destination) finalPath = destination[1].trim()
-    },
-  })
+  const attempt = (withCookies: boolean) => {
+    finalPath = null
+    stage = 'downloading'
+    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
+    if (options.format !== 'best') {
+      args.push('--audio-format', options.format)
+      // Only bites when ffmpeg actually re-encodes. When the stream already
+      // matches the container yt-dlp copies it and ignores this.
+      args.push('--audio-quality', options.quality === 'best' ? '0' : options.quality === 'high' ? '2' : '5')
+    }
+    if (options.embedThumbnail) args.push('--embed-thumbnail')
+    args.push(url)
+    return run(ytDlp, args, {
+      timeoutMs: 60 * 60_000,
+      env: ytDlpEnv(),
+      onSpawn: options.onSpawn,
+      onLine: line => {
+        const progress = line.match(/\[download\]\s+([\d.]+)%(?:\s+of\s+~?\s*(\S+))?(?:\s+at\s+(\S+))?(?:\s+ETA\s+(\S+))?/)
+        if (progress) { options.onProgress({ percent: Number(progress[1]), totalSize: progress[2] ?? null, speed: progress[3] ?? null, eta: progress[4] ?? null, stage }); return }
+        if (/\[ExtractAudio\]|\[ffmpeg\]/.test(line)) { stage = 'converting'; options.onProgress({ percent: 100, totalSize: null, speed: null, eta: null, stage }) }
+        if (/\[EmbedThumbnail\]|\[Metadata\]/.test(line)) { stage = 'embedding'; options.onProgress({ percent: 100, totalSize: null, speed: null, eta: null, stage }) }
+        const destination = line.match(/\[ExtractAudio\] Destination:\s+(.+)$/) || line.match(/\[download\] Destination:\s+(.+)$/) || line.match(/\[download\]\s+(.+?) has already been downloaded/)
+        if (destination) finalPath = destination[1].trim()
+      },
+    })
+  }
+  let result = await attempt(true)
+  // A signed-in request takes a stricter path through YouTube than an anonymous
+  // one; when that is what broke, the public stream is usually still there.
+  if (result.code !== 0 && hasCookies() && worthRetryingWithoutCookies(String(result.stderr))) result = await attempt(false)
   if (result.code !== 0) throw new Error(cleanYtDlpError(result.stderr) || 'yt-dlp stopped with an error.')
   // yt-dlp prints the pre-conversion destination first and the converted one later; trust the last audio file it mentioned that still exists.
   const audioExtensions = new Set(['.mp3', '.m4a', '.opus', '.flac', '.ogg', '.webm', '.wav', '.aac', '.mka'])

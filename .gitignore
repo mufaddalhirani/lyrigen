@@ -6,3 +6,6 @@ junk/
 .lyrigen-smoke-profile/
 .smoke-tmp/
 *.log
+
+# TypeScript incremental build state
+*.tsbuildinfo

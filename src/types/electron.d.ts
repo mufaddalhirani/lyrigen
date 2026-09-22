@@ -265,7 +265,23 @@ interface SongMetadata {
 }
 
 interface ToolStatus { name: 'yt-dlp' | 'ffmpeg' | 'ffprobe' | 'ffplay'; path: string | null; version: string | null; ok: boolean }
-interface ToolsStatus { tools: ToolStatus[]; searchedFolders: string[]; ready: boolean }
+interface JsRuntimeStatus { available: boolean; kind: 'deno' | 'node' | 'bun' | 'electron' | null; path: string | null }
+interface ToolsStatus { tools: ToolStatus[]; searchedFolders: string[]; ready: boolean; jsRuntime: JsRuntimeStatus }
+
+/** A song that was not queued, and what Lyrigen already has in its place. */
+interface SkippedDownload {
+  title: string
+  artist: string | null
+  url: string
+  videoId: string | null
+  existingPath: string
+  reason: string
+}
+
+interface EnqueueResult {
+  created: DownloadJob[]
+  skipped: SkippedDownload[]
+}
 
 interface DownloadOptions {
   format: AudioFormat
@@ -415,6 +431,7 @@ interface ElectronAPI {
   getSettings: () => Promise<SettingsState>
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
   planDuplicateCleanup: () => Promise<DuplicateGroup[]>
+  checkDownloadPaths: () => Promise<Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }>>
   trashFiles: (paths: string[]) => Promise<{ trashed: number; failed: string[] }>
   inspectCookiesFile: (filePath: string) => Promise<{ ok: boolean; message: string }>
   chooseCookiesFile: () => Promise<{ path: string; ok: boolean; message: string } | null>
@@ -459,7 +476,7 @@ interface ElectronAPI {
   updateDownloadSettings: (patch: Partial<DownloadSettings>) => Promise<DownloadSettings>
   chooseDownloadFolder: (current?: string) => Promise<string | null>
   inspectDownloadUrl: (url: string, options?: Partial<DownloadOptions>) => Promise<InspectResult>
-  enqueueDownloads: (items: Array<{ url: string; videoId?: string | null; metadata?: SongMetadata | null; info?: DownloadJob['info'] }>, options?: Partial<DownloadOptions>) => Promise<DownloadJob[]>
+  enqueueDownloads: (items: Array<{ url: string; videoId?: string | null; metadata?: SongMetadata | null; info?: DownloadJob['info'] }>, options?: Partial<DownloadOptions>) => Promise<EnqueueResult>
   listDownloads: () => Promise<DownloadJob[]>
   cancelDownload: (id: string) => Promise<void>
   retryDownload: (id: string) => Promise<void>
