@@ -246,14 +246,31 @@ function fold(value: string | null | undefined) {
     .replace(/[^\p{L}\p{N}]+/gu, '')
 }
 
+/**
+ * Drop the "(2)" Lyrigen itself adds when a name is already taken.
+ *
+ * This is the loop that made the problem compound. A song downloaded twice
+ * becomes `Song.m4a` and `Song (2).m4a`; the copy is then a different title to
+ * the duplicate check, so the next pass downloads it a third time as
+ * `Song (3).m4a`, and so on. Duplicate *cleanup* keeps whichever copy is
+ * better, which is often the numbered one — so the file left on disk is
+ * precisely the one the check could not see.
+ *
+ * Only a bare number in trailing parentheses goes. "(Live)", "(Sped Up)" and
+ * "(2024)" all survive, the last because a year is four digits.
+ */
+function stripCopyNumber(title: string) {
+  return title.replace(/\s*\(\d{1,3}\)\s*$/, '').trim() || title
+}
+
 /** Artist + song + which edit it is. Two files agreeing on all three are the same download. */
 function songKey(artist: string | null | undefined, title: string, variant: SongVariant | null) {
-  return `${fold(primaryArtist(artist ?? null))}|${fold(title)}|${variant ?? ''}`
+  return `${fold(primaryArtist(artist ?? null))}|${fold(stripCopyNumber(title))}|${variant ?? ''}`
 }
 
 /** Song + edit, for when the artist cannot be trusted on one side or the other. */
 function titleKey(title: string, variant: SongVariant | null) {
-  return `${fold(title)}|${variant ?? ''}`
+  return `${fold(stripCopyNumber(title))}|${variant ?? ''}`
 }
 
 /**

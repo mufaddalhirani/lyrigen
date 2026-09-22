@@ -751,12 +751,24 @@ function audioFormatSelector(format: AudioFormat, premiumAudio = false) {
     : format === 'opus'
       ? 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best'
       : 'bestaudio/best'
-  // With Premium and a token, two more streams exist: 141 is AAC 256 kbps and
-  // drops straight into an .m4a, 774 is Opus ~256 kbps and does not. 141 goes
-  // first for that reason, then anything else above 200 kbps in case YouTube
-  // renumbers them, and finally the ordinary list so a track that has no
-  // Premium stream still downloads rather than failing.
-  return premiumAudio ? `bestaudio[format_id=141]/bestaudio[format_id=774]/bestaudio[abr>200]/${ordinary}` : ordinary
+  if (!premiumAudio) return ordinary
+  // With Premium and a token, two more streams appear: AAC ~258 kbps at 44.1
+  // kHz (id 141) and Opus ~261 kbps at 48 kHz (id 774). They are asked for by
+  // codec and bitrate rather than by id, because `bestaudio[format_id=141]`
+  // matches nothing at all — measured — and a selector that silently fails
+  // falls through to the next branch instead of erroring, which is how "best
+  // available" quietly became a re-encode down to 119 kbps.
+  const premiumAac = 'bestaudio[acodec^=mp4a][abr>200]'
+  const premiumOpus = 'bestaudio[acodec=opus][abr>200]'
+  // Crossing codecs is never worth it while a container is being targeted: it
+  // means decoding a 260 kbps stream and re-encoding it, which is exactly the
+  // trade this function exists to avoid. So each target falls back to its own
+  // ordinary stream instead, and only the no-conversion paths may cross.
+  if (format === 'm4a') return `${premiumAac}/${ordinary}`
+  if (format === 'opus') return `${premiumOpus}/${ordinary}`
+  if (format === 'best') return `${premiumAac}/${premiumOpus}/${ordinary}`
+  // MP3 and FLAC re-encode whatever they are given, so take the best source.
+  return `bestaudio[abr>200]/${ordinary}`
 }
 
 /**
