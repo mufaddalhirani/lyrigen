@@ -358,6 +358,7 @@ interface DownloadJob {
   lyricSource: string | null
   lyricRetimed: boolean
   lyricEmbedded: boolean
+  audio?: { codec: string | null; kbps: number | null; sampleRate: number | null } | null
   attempts: number
   retryAt: string | null
   options: DownloadOptions

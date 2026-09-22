@@ -65,6 +65,12 @@ export interface DownloadJob {
   lyricRetimed: boolean
   /** Whether the lyrics were also written into the audio file's own tags. */
   lyricEmbedded: boolean
+  /**
+   * What actually arrived, measured from the file rather than assumed from the
+   * settings. Premium streams fall back quietly by design, so without this the
+   * only way to learn a download was 130 kbps was an external analyzer.
+   */
+  audio?: { codec: string | null; kbps: number | null; sampleRate: number | null } | null
   /** How many times this job has been attempted, for backoff. */
   attempts: number
   /** When an automatic retry is due, while `status` is `waiting`. */
@@ -839,6 +845,11 @@ export class Downloader {
       const metadata = job.metadata!
       const probed = await probe(outcome.filePath)
       const fileDuration = probed?.duration ?? job.info?.duration ?? null
+      // The container bitrate includes the embedded cover, a few kbps on a
+      // normal track — close enough to tell 130 from 260, which is the point.
+      const audio = { codec: probed?.codec ?? null, kbps: probed?.bitrate ? Math.round(probed.bitrate / 1000) : null, sampleRate: probed?.sampleRate ?? null }
+      const quality = audio.kbps ? `${(audio.codec ?? '').toUpperCase()} ${audio.kbps} kbps` : null
+      const premiumMissed = job.options.premiumAudio && audio.kbps != null && audio.kbps < 200
       // 3. Tags.
       this.update(job, { status: 'tagging', stage: 'Writing tags…', progress: 100, speed: null, eta: null })
       await writeTags(outcome.filePath, {
@@ -874,7 +885,8 @@ export class Downloader {
         await fs.promises.rm(outcome.thumbnailPath, { force: true }).catch(() => undefined)
       }
       await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
-      this.update(job, { status: 'done', stage: lyricPath ? `Done · lyrics from ${lyricSource}${lyricEmbedded ? ', embedded' : ''}` : 'Done · no lyrics found', progress: 100, outputPath: finalPath, lyricPath, lyricSource, lyricRetimed, lyricEmbedded, finishedAt: new Date().toISOString(), speed: null, eta: null })
+      const qualityNote = quality ? ` · ${quality}${premiumMissed ? ' (no Premium stream)' : ''}` : ''
+      this.update(job, { status: 'done', stage: `${lyricPath ? `Done · lyrics from ${lyricSource}${lyricEmbedded ? ', embedded' : ''}` : 'Done · no lyrics found'}${qualityNote}`, progress: 100, outputPath: finalPath, lyricPath, lyricSource, lyricRetimed, lyricEmbedded, audio, finishedAt: new Date().toISOString(), speed: null, eta: null })
     } catch (error) {
       if (isCancelled()) { await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined); return }
       const message = error instanceof Error ? error.message : String(error)
@@ -896,7 +908,11 @@ export class Downloader {
       } else if (isCookieDecryptError(message)) {
         this.update(job, { status: 'error', stage: 'Cookies could not be read', error: 'Windows would not decrypt that browser’s cookies. Chromium 127+ (Chrome, Edge, Opera GX, Brave) locks its cookie store so yt-dlp cannot read it. Use Firefox, or export a cookies.txt file and point Downloads settings at it.', finishedAt: new Date().toISOString(), speed: null, eta: null })
       } else if (needsCookies(message)) {
-        this.update(job, { status: 'error', stage: 'Sign-in required', error: 'YouTube asked this download to prove it is not a bot. It only clears with a signed-in session: export a cookies.txt while logged into YouTube and set it in Downloads settings. The browser dropdown works for Firefox, but Chromium browsers (Chrome, Edge, Brave, Opera GX) encrypt their cookie store and cannot be read.', finishedAt: new Date().toISOString(), speed: null, eta: null })
+        this.update(job, { status: 'error', stage: 'Sign-in required', error: 'YouTube asked this download to prove it is not a bot, and the session Lyrigen has is no longer signed in. Exported cookies.txt files go stale within hours because YouTube rotates them; the durable fix is "Use cookies from: Firefox" with YouTube signed in there, and the cookies.txt field left empty.', finishedAt: new Date().toISOString(), speed: null, eta: null })
+        // Every song behind this one will hit the same wall. Pausing keeps a
+        // 5,000-song queue from turning into 5,000 red rows in a few minutes;
+        // fix the sign-in, press Resume, and it carries on where it stopped.
+        if (!this.paused) this.setPaused(true)
       } else if (job.options.autoRetry !== false && (offline || isRetryableYtDlpError(message)) && job.attempts < 3) {
         this.holdForRetry(job, message, offline)
       } else {

@@ -271,10 +271,15 @@ export function buildRelativePath(template: string, fields: PathFields) {
     track: fields.trackNumber ? String(fields.trackNumber).padStart(2, '0') : '',
   }
   const defaults: Record<string, string> = { album: albumFallback, year: '', variant: '', genre: '', uploader: '', id: '', track: '' }
-  const segments = template.replace(/\\/g, '/').split('/').map(segment => {
+  const parts = template.replace(/\\/g, '/').split('/')
+  const segments = parts.map((segment, index) => {
+    // In a folder, {artist} means the artist the folder belongs to. The full
+    // credit — "Chaar Diwaari, Sonu Nigam" — belongs in the file name; used for
+    // a folder it filed one album under four artists, one per collaborator.
+    const folder = index < parts.length - 1
     const expanded = segment.replace(/\{(\w+)(?:\|([^}]*))?\}/g, (_match, key: string, fallback?: string) => {
       const name = key.toLocaleLowerCase()
-      const value = values[name] ?? ''
+      const value = (folder && name === 'artist' ? values.albumartist : values[name]) ?? ''
       if (value) return value
       return fallback ?? defaults[name] ?? ''
     })

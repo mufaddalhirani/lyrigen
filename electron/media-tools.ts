@@ -218,10 +218,95 @@ export interface TagSet {
  * `synopsis` and `purl` fields are blanked because a two-paragraph YouTube
  * description is not a useful tag on a song.
  */
+const OGG_EXTENSIONS = new Set(['.opus', '.ogg', '.oga'])
+
+/**
+ * Rewrite an Ogg (Opus / Vorbis) file's comments without losing its cover.
+ *
+ * ffmpeg reads Ogg cover art — a METADATA_BLOCK_PICTURE comment — as a picture
+ * stream, but cannot write a picture stream back into Ogg. So the usual "copy
+ * every stream, change a tag" call dies with "Could not write header", and it
+ * did for every .opus download: none of them got clean tags or embedded
+ * lyrics, and the raw YouTube title stayed as the song's name.
+ *
+ * Here the audio is copied on its own and the cover goes back in the only form
+ * Ogg has for it, the FLAC picture block base64'd into a comment. Everything
+ * travels in an ffmetadata file, because a cover as base64 is far longer than
+ * a Windows command line allows. Ogg keeps comments on the stream, not the
+ * file, which is why the metadata is mapped onto the audio stream itself.
+ */
+async function rewriteOggTags(filePath: string, updates: Record<string, string | null>, coverFallback?: string | null) {
+  const ffmpeg = resolveTool('ffmpeg'), ffprobe = resolveTool('ffprobe')
+  if (!ffmpeg || !ffprobe) throw new Error('ffmpeg and ffprobe are both needed to retag Ogg files.')
+  const probed = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name,width,height:stream_tags', '-of', 'json', filePath], { timeoutMs: 30_000 })
+  const streams = ((JSON.parse(probed.stdout.replace(/^﻿/, '') || '{}') as { streams?: unknown[] }).streams ?? []) as Array<{ index: number; codec_type?: string; codec_name?: string; width?: number; height?: number; tags?: Record<string, string> }>
+  const audio = streams.find(stream => stream.codec_type === 'audio')
+  const picture = streams.find(stream => stream.codec_type === 'video')
+  // Vorbis comment names and ffmpeg's generic names differ for a few fields;
+  // fold them together so an update replaces the old value instead of joining it.
+  const aliases: Record<string, string> = { albumartist: 'album_artist', 'album artist': 'album_artist', tracknumber: 'track' }
+  const keyOf = (name: string) => aliases[name.toLocaleLowerCase()] ?? name.toLocaleLowerCase()
+  const merged = new Map<string, string>()
+  for (const [name, value] of Object.entries(audio?.tags ?? {})) {
+    const key = keyOf(name)
+    if (key !== 'metadata_block_picture' && key !== 'encoder') merged.set(key, value)
+  }
+  for (const [name, value] of Object.entries(updates)) {
+    if (value === null || value === '') merged.delete(keyOf(name)); else merged.set(keyOf(name), value)
+  }
+  const stem = path.join(path.dirname(filePath), `${path.parse(filePath).name}.lyrigen-ogg`)
+  const isPng = picture?.codec_name === 'png'
+  const coverFile = `${stem}${isPng ? '.png' : '.jpg'}`, metaFile = `${stem}.ffmeta`, temporary = `${stem}${path.extname(filePath)}`
+  try {
+    let cover: { data: Buffer; mime: string; width: number; height: number } | null = null
+    if (picture) {
+      const extracted = await run(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-i', filePath, '-map', `0:${picture.index}`, '-c', 'copy', '-frames:v', '1', '-f', 'image2', coverFile], { timeoutMs: 60_000 })
+      if (extracted.code === 0 && fs.existsSync(coverFile)) cover = { data: fs.readFileSync(coverFile), mime: isPng ? 'image/png' : 'image/jpeg', width: picture.width ?? 0, height: picture.height ?? 0 }
+    } else if (coverFallback && fs.existsSync(coverFallback)) {
+      cover = { data: fs.readFileSync(coverFallback), mime: /\.png$/i.test(coverFallback) ? 'image/png' : 'image/jpeg', width: 0, height: 0 }
+    }
+    if (cover) merged.set('metadata_block_picture', pictureBlock(cover.data, cover.mime, cover.width, cover.height))
+    const escape = (value: string) => value.replace(/[\\=;#\n]/g, match => `\\${match}`)
+    fs.writeFileSync(metaFile, `${[';FFMETADATA1', ...Array.from(merged, ([key, value]) => `${escape(key)}=${escape(value)}`)].join('\n')}\n`, 'utf8')
+    const result = await run(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-i', filePath, '-f', 'ffmetadata', '-i', metaFile, '-map', '0:a', '-c', 'copy', '-map_metadata', '-1', '-map_metadata:s:a:0', '1:g', temporary], { timeoutMs: 120_000 })
+    if (result.code !== 0 || !fs.existsSync(temporary)) throw new Error(result.stderr.trim().split(/\r?\n/).pop() || 'ffmpeg could not rewrite the Ogg tags.')
+    await fs.promises.rename(temporary, filePath)
+  } finally {
+    for (const leftover of [coverFile, metaFile, temporary]) { try { fs.unlinkSync(leftover) } catch { /* already gone */ } }
+  }
+}
+
+/** A FLAC picture block — the structure Ogg files carry cover art in — as base64. */
+function pictureBlock(image: Buffer, mimeType: string, width: number, height: number) {
+  const mime = Buffer.from(mimeType)
+  const header = Buffer.alloc(32 + mime.length)
+  let offset = 0
+  const u32 = (value: number) => { header.writeUInt32BE(value >>> 0, offset); offset += 4 }
+  u32(3) // front cover
+  u32(mime.length); mime.copy(header, offset); offset += mime.length
+  u32(0) // no description
+  u32(width); u32(height); u32(24); u32(0)
+  u32(image.length)
+  return Buffer.concat([header, image]).toString('base64')
+}
+
 export async function writeTags(filePath: string, tags: TagSet, options: { coverPath?: string | null } = {}) {
   const ffmpeg = resolveTool('ffmpeg')
   if (!ffmpeg) throw new Error('ffmpeg was not found, so tags could not be written.')
   const ext = path.extname(filePath).toLocaleLowerCase()
+  if (OGG_EXTENSIONS.has(ext)) {
+    const updates: Record<string, string | null> = {}
+    const put = (key: string, value: string | number | null | undefined) => { if (value !== undefined) updates[key] = value === null ? null : String(value) }
+    put('title', tags.title); put('artist', tags.artist); put('album', tags.album); put('album_artist', tags.albumArtist)
+    put('genre', tags.genre); put('date', tags.date); put('track', tags.track)
+    updates.comment = tags.comment ?? tags.sourceUrl ?? null
+    updates.purl = tags.sourceUrl ?? null
+    // yt-dlp writes the whole video description into these; it is not song metadata.
+    updates.description = null
+    updates.synopsis = null
+    await rewriteOggTags(filePath, updates, options.coverPath)
+    return
+  }
   const temporary = path.join(path.dirname(filePath), `${path.parse(filePath).name}.lyrigen-writing${ext}`)
   const args = ['-y', '-hide_banner', '-loglevel', 'error', '-i', filePath]
   const attachCover = options.coverPath && fs.existsSync(options.coverPath) && (ext === '.mp3' || ext === '.m4a' || ext === '.flac')
@@ -403,7 +488,7 @@ function authArgs(enabled = true) {
 }
 
 /** Is Lyrigen configured to send a signed-in session at all? */
-function hasCookies() { return Boolean(cookieFile) || cookieSource !== 'none' }
+function hasCookies() { return Boolean(cookieFile && fs.existsSync(cookieFile)) || cookieSource !== 'none' }
 
 /**
  * Failures where dropping the cookies is worth a second try.
@@ -525,6 +610,10 @@ export function setPotProviderFolder(folder: string | null) {
 function potCandidates() {
   const folders: string[] = []
   if (potFolder) folders.push(potFolder)
+  // Lyrigen's own data folder first. Keeping it beside the tools looked tidy,
+  // but the tools folder can double as a music folder, and a Node project full
+  // of node_modules is exactly what a person tidying their music deletes.
+  try { folders.push(path.join(app.getPath('userData'), 'pot-provider')) } catch { /* not in Electron */ }
   for (const base of candidateFolders()) folders.push(path.join(base, 'pot-provider'), path.join(base, 'bgutil-ytdlp-pot-provider'))
   try { folders.push(path.join(app.getPath('home'), 'bgutil-ytdlp-pot-provider')) } catch { /* no home folder */ }
   return folders.filter(folder => fs.existsSync(path.join(folder, 'server', 'build', 'main.js')))
@@ -573,20 +662,32 @@ export async function potStatus(): Promise<PotStatus> {
  * which is not a trade worth making for an audio download. One server serves
  * the whole queue: the token is cached and reused across a playlist.
  */
-export async function startPotProvider(): Promise<PotStatus> {
+let potStarting: Promise<PotStatus> | null = null
+
+export function startPotProvider(): Promise<PotStatus> {
+  // A queue starts a dozen downloads in the same instant, and each one asks
+  // for the server. Without a shared promise the first spawns it and the other
+  // eleven see "not running yet" and quietly drop to 130 kbps.
+  if (!potStarting) potStarting = startPotProviderOnce().finally(() => { potStarting = null })
+  return potStarting
+}
+
+async function startPotProviderOnce(): Promise<PotStatus> {
   const status = await potStatus()
-  if (status.running || !status.folder || potProcess) return status
+  if (status.running || !status.folder) return status
   const runtime = jsRuntimeStatus()
   if (!runtime.available || !runtime.path || runtime.kind === 'electron') return status
-  try {
-    potProcess = spawn(runtime.path, [path.join(status.folder, 'server', 'build', 'main.js')], {
-      cwd: path.join(status.folder, 'server'), windowsHide: true, stdio: 'ignore',
-    })
-    potProcess.once('exit', () => { potProcess = null })
-  } catch (error) {
-    console.warn('Could not start the proof-of-origin token server', error)
-    potProcess = null
-    return status
+  if (!potProcess) {
+    try {
+      potProcess = spawn(runtime.path, [path.join(status.folder, 'server', 'build', 'main.js')], {
+        cwd: path.join(status.folder, 'server'), windowsHide: true, stdio: 'ignore',
+      })
+      potProcess.once('exit', () => { potProcess = null })
+    } catch (error) {
+      console.warn('Could not start the proof-of-origin token server', error)
+      potProcess = null
+      return status
+    }
   }
   // It binds its port in well under a second; poll rather than guess.
   for (let attempt = 0; attempt < 16; attempt += 1) {
@@ -745,12 +846,21 @@ export interface DownloadOutcome {
  * MP3 and FLAC have no matching YouTube stream, so those re-encode whatever the
  * best source is and there is nothing to gain by being fussy.
  */
-function audioFormatSelector(format: AudioFormat, premiumAudio = false) {
+function audioFormatSelector(format: AudioFormat, premiumAudio = false, youtube = true) {
+  // The trailing `best` is a muxed *video*. On YouTube that is format 18, a
+  // 360p clip whose audio track is often HE-AAC at ~50 kbps — and when a client
+  // serves no audio-only streams (web_music without its token does exactly
+  // that), a selector ending in `best` quietly downloads it, extracts the
+  // audio, and hands you something worse than any real audio stream. Measured:
+  // God's Plan arrived as 50 kbps HE-AAC this way. On YouTube, no audio-only
+  // stream must be an error the caller can react to, never a quiet downgrade.
+  // Other sites keep the fallback, since some list audio with no codec info.
+  const tail = youtube ? '' : '/best'
   const ordinary = format === 'm4a'
-    ? 'bestaudio[acodec^=mp4a]/bestaudio[ext=m4a]/bestaudio/best'
+    ? `bestaudio[acodec^=mp4a]/bestaudio[ext=m4a]/bestaudio${tail}`
     : format === 'opus'
-      ? 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best'
-      : 'bestaudio/best'
+      ? `bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio${tail}`
+      : `bestaudio${tail}`
   if (!premiumAudio) return ordinary
   // With Premium and a token, two more streams appear: AAC ~258 kbps at 44.1
   // kHz (id 141) and Opus ~261 kbps at 48 kHz (id 774). They are asked for by
@@ -790,11 +900,22 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
   const template = path.join(outputDir, '%(id)s.%(ext)s')
   let finalPath = null as string | null
   let stage: DownloadProgress['stage'] = 'downloading'
-  const attempt = (withCookies: boolean) => {
+  const youtube = /(?:^|\/\/|\.)(?:youtube\.com|youtu\.be)\//i.test(url)
+  // Premium streams come from the music client, and without its token that
+  // client serves no audio at all. So only ask for them when the token server
+  // is actually answering — starting it here if need be, since this is the
+  // first moment it is needed. It used to be started only when the setting was
+  // switched on, so after any restart every "Premium" download quietly ran
+  // tokenless.
+  let premiumReady = false
+  if (options.premiumAudio && youtube && hasCookies()) {
+    const pot = await startPotProvider()
+    premiumReady = pot.running && pot.plugin
+  }
+  const attempt = (withCookies: boolean, premium: boolean) => {
     finalPath = null
     stage = 'downloading'
-    const premium = Boolean(options.premiumAudio) && withCookies
-    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format, premium), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
+    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format, premium, youtube), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
     // The Premium streams live behind the music client, which is also the one
     // that needs the token. Dropping both on the anonymous retry is deliberate:
     // without a signed-in session there is nothing there to ask for.
@@ -821,10 +942,15 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
       },
     })
   }
-  let result = await attempt(true)
+  let result = await attempt(true, premiumReady)
+  // The music client can still come back with no audio for a particular
+  // track — an official video rather than a catalogue song, or a token that
+  // could not be minted. The ordinary clients serve those fine, so try them
+  // before calling it a failure.
+  if (result.code !== 0 && premiumReady) result = await attempt(true, false)
   // A signed-in request takes a stricter path through YouTube than an anonymous
   // one; when that is what broke, the public stream is usually still there.
-  if (result.code !== 0 && hasCookies() && worthRetryingWithoutCookies(String(result.stderr))) result = await attempt(false)
+  if (result.code !== 0 && hasCookies() && worthRetryingWithoutCookies(String(result.stderr))) result = await attempt(false, false)
   if (result.code !== 0) throw new Error(cleanYtDlpError(result.stderr) || 'yt-dlp stopped with an error.')
   // yt-dlp prints the pre-conversion destination first and the converted one later; trust the last audio file it mentioned that still exists.
   const audioExtensions = new Set(['.mp3', '.m4a', '.opus', '.flac', '.ogg', '.webm', '.wav', '.aac', '.mka'])
@@ -937,6 +1063,11 @@ export async function embedLyrics(filePath: string, lyrics: { plain: string; lin
   }
 
   if (!TAG_LYRIC_EXTENSIONS.has(ext)) return 'unsupported'
+
+  // Ogg needs the cover-preserving path; the generic one below cannot write it.
+  if (OGG_EXTENSIONS.has(ext)) {
+    try { await rewriteOggTags(filePath, { lyrics: plain }); return 'tag' } catch (error) { console.warn('Could not write lyrics tag', error); return 'failed' }
+  }
 
   const ffmpeg = resolveTool('ffmpeg')
   if (!ffmpeg) return 'failed'
