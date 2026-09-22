@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import { app } from 'electron'
 
@@ -439,18 +440,34 @@ export function inspectCookiesFile(filePath: string): { ok: boolean; message: st
   if (!rows.length) return { ok: false, message: 'That file has no cookies in it.' }
   const youtube = rows.filter(row => /(^|\.)youtube\.com/i.test(row.split('\t')[0] ?? ''))
   if (!youtube.length) return { ok: false, message: 'No youtube.com cookies in that file. Export it from a YouTube tab while signed in.' }
-  // Any one of these means a signed-in session; which appear varies by account.
   const names = new Set(youtube.map(row => (row.split('\t')[5] ?? '').trim()))
-  const auth = ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'LOGIN_INFO', '__Secure-1PSID', '__Secure-3PSID']
-  const found = auth.filter(name => names.has(name))
+  // These are the ones YouTube actually authenticates with, and they are all
+  // HttpOnly — an export that misses them still looks plausible, because the
+  // third-party `__Secure-3P*` pair does come through. That is the trap: the
+  // file has a dozen YouTube cookies, passes a casual look, and every download
+  // still fails as though you were signed out.
+  const core = ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'LOGIN_INFO', '__Secure-1PSID']
+  const found = core.filter(name => names.has(name))
   if (!found.length) {
-    const sample = [...names].filter(Boolean).slice(0, 4).join(', ')
+    const thirdParty = ['__Secure-3PSID', '__Secure-3PAPISID', '__Secure-3PSIDTS'].filter(name => names.has(name))
     return {
       ok: false,
-      message: `Found ${youtube.length} YouTube cookie${youtube.length === 1 ? '' : 's'}${sample ? ` (${sample})` : ''}, but none of them is a login. Sign in to YouTube, then export again with an extension that includes HttpOnly cookies.`,
+      message: thirdParty.length
+        ? `This file has ${youtube.length} YouTube cookies, but the ones that sign you in (SID, HSID, SAPISID, LOGIN_INFO) are missing — only the third-party ${thirdParty.join(' / ')} came through. Either the extension skipped HttpOnly cookies, or it filed them under google.com instead of youtube.com. Export again from a youtube.com tab, with HttpOnly cookies included.`
+        : `Found ${youtube.length} YouTube cookie${youtube.length === 1 ? '' : 's'}, but none of them is a login. Sign in to YouTube, then export again with an extension that includes HttpOnly cookies.`,
     }
   }
-  return { ok: true, message: `Signed-in session found (${found.length} auth cookie${found.length === 1 ? '' : 's'}).` }
+  // A session that is present but past its date fails in a way that reads like
+  // a bot check, so it is worth telling apart.
+  const now = Date.now() / 1000
+  const live = youtube.some(row => {
+    const fields = row.split('\t')
+    if (!core.includes((fields[5] ?? '').trim())) return false
+    const expires = Number(fields[4] ?? 0)
+    return expires === 0 || expires > now
+  })
+  if (!live) return { ok: false, message: 'The login cookies in this file have expired. Sign in to YouTube again and export a fresh one.' }
+  return { ok: true, message: `Signed-in session found (${found.join(', ')}).` }
 }
 
 /**
@@ -468,6 +485,132 @@ export function isCookieLockedError(message: string) {
 /** Chromium forks all share the cookie store that Chromium 127+ locked down. */
 export function isChromiumBrowser(source: CookieSource) {
   return ['chrome', 'edge', 'brave', 'opera', 'vivaldi', 'chromium'].includes(source)
+}
+
+// ---------------------------------------------------------------------------
+// Proof-of-origin tokens, for YouTube Music's 256 kbps streams
+// ---------------------------------------------------------------------------
+
+/**
+ * YouTube's `web_music` client is the only one that serves the Premium audio
+ * streams (format 774, Opus ~256 kbps, and 141, AAC 256 kbps). It will not hand
+ * out media URLs without a proof-of-origin token — an attestation the real site
+ * produces in the browser — so yt-dlp skips those formats and leaves you on the
+ * 130 kbps stream everyone else gets, with only a warning to say why.
+ *
+ * yt-dlp's own PO Token Guide points at Brainicism's bgutil provider for this:
+ * a small local server that mints the token on request, plus a yt-dlp plugin
+ * that asks it. Neither ships with Lyrigen and neither is installed by it —
+ * this code only looks for them, and offers to start the server once you have
+ * turned Premium audio on yourself. With neither present, nothing changes.
+ */
+export interface PotStatus {
+  /** The provider's folder, if one was found. */
+  folder: string | null
+  /** Whether the yt-dlp plugin that talks to it is installed. */
+  plugin: boolean
+  /** Whether the token server is answering right now. */
+  running: boolean
+}
+
+const POT_PORT = 4416
+let potFolder: string | null = null
+let potProcess: ChildProcess | null = null
+
+export function setPotProviderFolder(folder: string | null) {
+  potFolder = folder && fs.existsSync(folder) ? folder : null
+}
+
+/** Where the provider might be, in the order worth trying. */
+function potCandidates() {
+  const folders: string[] = []
+  if (potFolder) folders.push(potFolder)
+  for (const base of candidateFolders()) folders.push(path.join(base, 'pot-provider'), path.join(base, 'bgutil-ytdlp-pot-provider'))
+  try { folders.push(path.join(app.getPath('home'), 'bgutil-ytdlp-pot-provider')) } catch { /* no home folder */ }
+  return folders.filter(folder => fs.existsSync(path.join(folder, 'server', 'build', 'main.js')))
+}
+
+/** Is the yt-dlp plugin that asks the server for tokens installed? */
+function potPluginInstalled() {
+  const roots: string[] = []
+  if (process.env.APPDATA) roots.push(path.join(process.env.APPDATA, 'yt-dlp', 'plugins'))
+  try { roots.push(path.join(app.getPath('home'), '.yt-dlp', 'plugins')) } catch { /* no home folder */ }
+  const ytDlp = resolveTool('yt-dlp')
+  if (ytDlp) roots.push(path.join(path.dirname(ytDlp), 'yt-dlp-plugins'))
+  for (const root of roots) {
+    let entries: string[] = []
+    try { entries = fs.readdirSync(root) } catch { continue }
+    for (const entry of entries) {
+      try { if (fs.readdirSync(path.join(root, entry, 'yt_dlp_plugins', 'extractor')).some(file => file.startsWith('getpot_'))) return true } catch { /* not this one */ }
+    }
+  }
+  return false
+}
+
+/** Is something answering on the token server's port? */
+function potServerListening(timeoutMs = 1200) {
+  return new Promise<boolean>(resolve => {
+    const socket = new net.Socket()
+    const done = (result: boolean) => { socket.destroy(); resolve(result) }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => done(true))
+    socket.once('timeout', () => done(false))
+    socket.once('error', () => done(false))
+    socket.connect(POT_PORT, '127.0.0.1')
+  })
+}
+
+export async function potStatus(): Promise<PotStatus> {
+  return { folder: potCandidates()[0] ?? null, plugin: potPluginInstalled(), running: await potServerListening() }
+}
+
+/**
+ * Start the token server, if it is not already up.
+ *
+ * Only ever called because Premium audio was switched on, and it needs a real
+ * Node or Deno on PATH — the provider is a Node service, and running it through
+ * Lyrigen's own Electron binary would mean changing how that binary behaves,
+ * which is not a trade worth making for an audio download. One server serves
+ * the whole queue: the token is cached and reused across a playlist.
+ */
+export async function startPotProvider(): Promise<PotStatus> {
+  const status = await potStatus()
+  if (status.running || !status.folder || potProcess) return status
+  const runtime = jsRuntimeStatus()
+  if (!runtime.available || !runtime.path || runtime.kind === 'electron') return status
+  try {
+    potProcess = spawn(runtime.path, [path.join(status.folder, 'server', 'build', 'main.js')], {
+      cwd: path.join(status.folder, 'server'), windowsHide: true, stdio: 'ignore',
+    })
+    potProcess.once('exit', () => { potProcess = null })
+  } catch (error) {
+    console.warn('Could not start the proof-of-origin token server', error)
+    potProcess = null
+    return status
+  }
+  // It binds its port in well under a second; poll rather than guess.
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    if (await potServerListening(500)) break
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  return potStatus()
+}
+
+export function stopPotProvider() {
+  if (!potProcess) return
+  try { potProcess.kill() } catch { /* already gone */ }
+  potProcess = null
+}
+
+/**
+ * Point a watch link at YouTube Music.
+ *
+ * The `web_music` client answers for any video id, but the Premium streams are
+ * only offered for tracks in the music catalogue, and asking via
+ * music.youtube.com is how you say that is what you are after.
+ */
+export function asMusicUrl(url: string) {
+  return url.replace(/^https?:\/\/(?:www\.|m\.)?youtube\.com\//i, 'https://music.youtube.com/')
 }
 
 /** The DPAPI failure is specific enough to explain properly rather than pass through raw. */
@@ -602,10 +745,18 @@ export interface DownloadOutcome {
  * MP3 and FLAC have no matching YouTube stream, so those re-encode whatever the
  * best source is and there is nothing to gain by being fussy.
  */
-function audioFormatSelector(format: AudioFormat) {
-  if (format === 'm4a') return 'bestaudio[acodec^=mp4a]/bestaudio[ext=m4a]/bestaudio/best'
-  if (format === 'opus') return 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best'
-  return 'bestaudio/best'
+function audioFormatSelector(format: AudioFormat, premiumAudio = false) {
+  const ordinary = format === 'm4a'
+    ? 'bestaudio[acodec^=mp4a]/bestaudio[ext=m4a]/bestaudio/best'
+    : format === 'opus'
+      ? 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best'
+      : 'bestaudio/best'
+  // With Premium and a token, two more streams exist: 141 is AAC 256 kbps and
+  // drops straight into an .m4a, 774 is Opus ~256 kbps and does not. 141 goes
+  // first for that reason, then anything else above 200 kbps in case YouTube
+  // renumbers them, and finally the ordinary list so a track that has no
+  // Premium stream still downloads rather than failing.
+  return premiumAudio ? `bestaudio[format_id=141]/bestaudio[format_id=774]/bestaudio[abr>200]/${ordinary}` : ordinary
 }
 
 /**
@@ -618,7 +769,7 @@ function audioFormatSelector(format: AudioFormat) {
  */
 const RESILIENCE_ARGS = ['--retries', '10', '--fragment-retries', '10', '--extractor-retries', '3', '--socket-timeout', '30', '--concurrent-fragments', '4']
 
-export async function downloadAudio(url: string, outputDir: string, options: { format: AudioFormat; quality: AudioQuality; embedThumbnail: boolean; onProgress: (progress: DownloadProgress) => void; onSpawn: (child: ChildProcess) => void }): Promise<DownloadOutcome> {
+export async function downloadAudio(url: string, outputDir: string, options: { format: AudioFormat; quality: AudioQuality; embedThumbnail: boolean; premiumAudio?: boolean; onProgress: (progress: DownloadProgress) => void; onSpawn: (child: ChildProcess) => void }): Promise<DownloadOutcome> {
   const ytDlp = resolveTool('yt-dlp')
   const ffmpegDir = ffmpegLocation()
   if (!ytDlp) throw new Error('yt-dlp was not found.')
@@ -630,7 +781,12 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
   const attempt = (withCookies: boolean) => {
     finalPath = null
     stage = 'downloading'
-    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
+    const premium = Boolean(options.premiumAudio) && withCookies
+    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format, premium), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
+    // The Premium streams live behind the music client, which is also the one
+    // that needs the token. Dropping both on the anonymous retry is deliberate:
+    // without a signed-in session there is nothing there to ask for.
+    if (premium) args.push('--extractor-args', 'youtube:player_client=web_music')
     if (options.format !== 'best') {
       args.push('--audio-format', options.format)
       // Only bites when ffmpeg actually re-encodes. When the stream already
@@ -638,7 +794,7 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
       args.push('--audio-quality', options.quality === 'best' ? '0' : options.quality === 'high' ? '2' : '5')
     }
     if (options.embedThumbnail) args.push('--embed-thumbnail')
-    args.push(url)
+    args.push(premium ? asMusicUrl(url) : url)
     return run(ytDlp, args, {
       timeoutMs: 60 * 60_000,
       env: ytDlpEnv(),

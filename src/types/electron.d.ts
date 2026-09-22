@@ -265,6 +265,7 @@ interface SongMetadata {
 }
 
 interface ToolStatus { name: 'yt-dlp' | 'ffmpeg' | 'ffprobe' | 'ffplay'; path: string | null; version: string | null; ok: boolean }
+interface PotStatus { folder: string | null; plugin: boolean; running: boolean }
 interface JsRuntimeStatus { available: boolean; kind: 'deno' | 'node' | 'bun' | 'electron' | null; path: string | null }
 interface ToolsStatus { tools: ToolStatus[]; searchedFolders: string[]; ready: boolean; jsRuntime: JsRuntimeStatus }
 
@@ -298,6 +299,7 @@ interface DownloadOptions {
   useMusicBrainz: boolean
   skipDuplicates: boolean
   autoRetry: boolean
+  premiumAudio: boolean
 }
 
 interface DownloadSettings extends DownloadOptions {
@@ -308,6 +310,7 @@ interface DownloadSettings extends DownloadOptions {
   cookieSource: 'none' | 'chrome' | 'edge' | 'firefox' | 'brave' | 'opera' | 'vivaldi' | 'chromium'
   cookieProfile: string
   cookieFile: string
+  potProviderFolder: string | null
   inboxFolder: string | null
   inboxEnabled: boolean
 }
@@ -432,6 +435,8 @@ interface ElectronAPI {
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
   planDuplicateCleanup: () => Promise<DuplicateGroup[]>
   checkDownloadPaths: () => Promise<Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }>>
+  getPotStatus: () => Promise<PotStatus>
+  startPotProvider: () => Promise<PotStatus>
   trashFiles: (paths: string[]) => Promise<{ trashed: number; failed: string[] }>
   inspectCookiesFile: (filePath: string) => Promise<{ ok: boolean; message: string }>
   chooseCookiesFile: () => Promise<{ path: string; ok: boolean; message: string } | null>

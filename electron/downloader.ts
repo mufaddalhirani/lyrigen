@@ -89,6 +89,14 @@ export interface DownloadOptions {
   skipDuplicates: boolean
   /** Retry retryable failures automatically instead of stopping at the first. */
   autoRetry: boolean
+  /**
+   * Ask YouTube Music for its 256 kbps streams.
+   *
+   * Needs all three of: a Premium subscription, a signed-in cookies.txt, and a
+   * proof-of-origin token provider installed. Missing any of them, the download
+   * quietly falls back to the ordinary 130 kbps stream rather than failing.
+   */
+  premiumAudio: boolean
 }
 
 export interface DownloadSettings extends DownloadOptions {
@@ -102,6 +110,8 @@ export interface DownloadSettings extends DownloadOptions {
   cookieProfile: string
   /** A cookies.txt file. Takes priority, and is the only method Chromium 127+ cannot break. */
   cookieFile: string
+  /** Where the proof-of-origin token provider was unpacked, when it is not somewhere obvious. */
+  potProviderFolder: string | null
   /** Folder that is watched for new audio files to auto-organise (e.g. a browser download folder). */
   inboxFolder: string | null
   inboxEnabled: boolean
@@ -191,6 +201,8 @@ export function defaultSettings(): DownloadSettings {
     cookieFile: '',
     skipDuplicates: true,
     autoRetry: true,
+    premiumAudio: false,
+    potProviderFolder: null,
     inboxFolder: null,
     inboxEnabled: false,
   }
@@ -798,7 +810,7 @@ export class Downloader {
       // 2. Download.
       this.update(job, { status: 'downloading', stage: 'Downloading…', progress: 0 })
       const outcome = await downloadAudio(job.url, tempDir, {
-        format: job.options.format, quality: job.options.quality, embedThumbnail: job.options.embedThumbnail,
+        format: job.options.format, quality: job.options.quality, embedThumbnail: job.options.embedThumbnail, premiumAudio: job.options.premiumAudio,
         onSpawn: child => this.children.set(job.id, child),
         onProgress: (progress: DownloadProgress) => {
           if (isCancelled()) return

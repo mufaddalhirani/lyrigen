@@ -21,7 +21,7 @@ import { configureGraphics, reportGraphicsStatus } from './graphics'
 import { getThumbnailUrl, pruneThumbnailCache } from './artwork-cache'
 import { Downloader, songIdentity, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
-import { inspectCookiesFile, isPreviewing, previewUrl, setToolsFolder, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
+import { inspectCookiesFile, isPreviewing, potStatus, previewUrl, setPotProviderFolder, setToolsFolder, startPotProvider, stopPotProvider, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
 import { setBetterLyricsApiKey } from './lyrics-sources'
 import { PATH_PRESETS, primaryArtist } from './song-naming'
 
@@ -735,6 +735,7 @@ app.on('will-quit', () => {
   libraryWatchers.forEach(watcher => watcher.close())
   if (libraryWatchTimer) clearTimeout(libraryWatchTimer)
   stopPreview()
+  stopPotProvider()
   downloader?.dispose()
 })
 
@@ -747,6 +748,7 @@ function getDownloader() {
   if (!downloader) {
     downloader = new Downloader(app.getPath('userData'))
     setToolsFolder(downloader.settings.toolsFolder)
+    setPotProviderFolder(downloader.settings.potProviderFolder)
     setBetterLyricsApiKey(downloader.settings.betterLyricsApiKey)
     downloader.setKnownArtistsProvider(() => (libraryCache?.items ?? []).flatMap(item => [item.artist, item.albumArtist]).filter((name): name is string => Boolean(name)))
     // Everywhere a song might already be. The roots cover the folders a person
@@ -766,6 +768,10 @@ function getDownloader() {
 }
 
 ipcMain.handle('tools-status', () => toolsStatus())
+ipcMain.handle('pot-status', () => potStatus())
+// Only ever reached because Premium audio was switched on in settings, which is
+// the consent for Lyrigen to run a service it did not install.
+ipcMain.handle('start-pot-provider', () => startPotProvider())
 ipcMain.handle('choose-tools-folder', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Folder containing yt-dlp.exe and ffmpeg.exe' })
   if (result.canceled || !result.filePaths[0]) return toolsStatus()

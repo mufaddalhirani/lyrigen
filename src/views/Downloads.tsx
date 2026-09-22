@@ -68,6 +68,8 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
   const [shownItems, setShownItems] = useState(PAGE)
   const [shownJobs, setShownJobs] = useState(PAGE)
   const [missingPaths, setMissingPaths] = useState<Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }>>([])
+  const [pot, setPot] = useState<PotStatus | null>(null)
+  const [startingPot, setStartingPot] = useState(false)
   const settingsTimer = useRef<number | null>(null)
   const pendingJobs = useRef(new Map<string, DownloadJob>())
   const flushTimer = useRef<number | null>(null)
@@ -80,6 +82,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
     })
     void window.electronAPI.areDownloadsPaused().then(value => { if (active) setPaused(value) }).catch(() => undefined)
     void window.electronAPI.checkDownloadPaths().then(value => { if (active) setMissingPaths(value) }).catch(() => undefined)
+    void window.electronAPI.getPotStatus().then(value => { if (active) setPot(value) }).catch(() => undefined)
     // Two dozen parallel downloads emit progress far faster than anything needs
     // to be drawn, and each event used to walk the whole job list. Collect them
     // and apply the batch a few times a second instead.
@@ -312,6 +315,18 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
             <label className="toggle"><input type="checkbox" checked={settings.writeCoverFile} onChange={event => patchSettings({ writeCoverFile: event.target.checked })} /><span><strong>Also save cover.jpg in the folder</strong></span></label>
             <label className="toggle"><input type="checkbox" checked={settings.skipDuplicates} onChange={event => patchSettings({ skipDuplicates: event.target.checked })} /><span><strong>Skip songs you already have</strong><small>Checked against every folder in your library, not just this app's downloads — by YouTube video id first, then artist + song + edit, then song name and length when the uploader is posing as the artist. A playlist that lists the same song twice only downloads it once either way.</small></span></label>
             <label className="toggle"><input type="checkbox" checked={settings.autoRetry} onChange={event => patchSettings({ autoRetry: event.target.checked })} /><span><strong>Retry failures automatically</strong><small>403s, throttling and dropped connections are retried after 15s, 60s then 180s. With no network the queue simply waits instead of failing every song.</small></span></label>
+            <label className="toggle"><input type="checkbox" checked={settings.premiumAudio} onChange={event => { patchSettings({ premiumAudio: event.target.checked }); if (event.target.checked) { setStartingPot(true); void window.electronAPI.startPotProvider().then(setPot).finally(() => setStartingPot(false)) } }} /><span><strong>Use YouTube Music's 256 kbps audio</strong><small>Asks YouTube Music for the Premium streams — format 141 (AAC 256k) where it exists, otherwise 774 (Opus ~256k). Everything else falls back to the ordinary 130 kbps stream rather than failing, so turning this on can never cost you a download.</small></span></label>
+            {settings.premiumAudio && <div className="field" style={{ marginTop: -4 }}>
+              <p className={`cookie-status ${pot?.running && pot.plugin ? 'ok' : 'bad'}`}>
+                {startingPot ? 'Starting the token server…' : pot?.running && pot.plugin ? '✓ Token provider running — 256 kbps streams can be requested.' : '! 256 kbps needs a proof-of-origin token provider, and it is not ready.'}
+              </p>
+              <small className="settings-note">
+                Three things have to be true, and YouTube tells you about none of them: a live <b>Premium</b> subscription, a <b>signed-in cookies.txt</b>, and the <b>token provider</b> below. Miss any one and you silently get 130 kbps.<br /><br />
+                Provider found: <b>{pot?.folder ?? 'no'}</b> · yt-dlp plugin: <b>{pot?.plugin ? 'installed' : 'missing'}</b> · server: <b>{pot?.running ? 'running' : 'stopped'}</b>.<br /><br />
+                To install it: clone <b>github.com/Brainicism/bgutil-ytdlp-pot-provider</b>, run <b>npm ci &amp;&amp; npx tsc</b> in its <b>server</b> folder, and copy its <b>plugin/yt_dlp_plugins</b> folder into <b>%APPDATA%yt-dlppluginsgutil-pot</b>. Lyrigen looks for it beside your tools folder. It is third-party software and Lyrigen neither ships nor installs it.
+              </small>
+              {!pot?.running && pot?.folder && <button className="mini-button" disabled={startingPot} onClick={() => { setStartingPot(true); void window.electronAPI.startPotProvider().then(setPot).finally(() => setStartingPot(false)) }}>Start the token server</button>}
+            </div>}
             <label className="toggle"><input type="checkbox" checked={settings.useMusicBrainz} onChange={event => patchSettings({ useMusicBrainz: event.target.checked })} /><span><strong>Verify with MusicBrainz</strong><small>One extra request per song (≈1 s) to confirm artist/title and pick up album, year and genre.</small></span></label>
           </div>
           <label><span>Parallel downloads</span><select value={settings.concurrency} onChange={event => patchSettings({ concurrency: Number(event.target.value) })}>{[1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24].map(value => <option key={value} value={value}>{value}</option>)}</select><small className="settings-note">Each one is a separate yt-dlp process, so the ceiling is your CPU and RAM rather than bandwidth — 24 downloads means 24 processes, then an ffmpeg pass each. Worth knowing: hammering YouTube with many parallel requests from one IP is itself a way to trigger the "confirm you're not a bot" check, so if downloads start failing after raising this, drop it back before blaming cookies.</small></label>
