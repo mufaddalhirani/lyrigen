@@ -654,7 +654,30 @@ function potServerListening(timeoutMs = 1200) {
 }
 
 export async function potStatus(): Promise<PotStatus> {
-  return { folder: potCandidates()[0] ?? null, plugin: potPluginInstalled(), running: await potServerListening() }
+  return { folder: potCandidates()[0] ?? null, plugin: potPluginInstalled() || await ytDlpSeesPotPlugin(), running: await potServerListening() }
+}
+
+/**
+ * Ask yt-dlp itself whether it loads a token plugin.
+ *
+ * The folder check above is a guess at yt-dlp's plugin search, and a guess can
+ * disagree with the real thing — it once reported "plugin missing" while
+ * yt-dlp was loading the plugin fine, which hid Premium behind a false alarm.
+ * `yt-dlp -v` lists the plugin directories it actually loaded in about a
+ * second, so that settles it. Cached briefly: a queue asks many times a minute.
+ */
+let ytDlpPluginCheck: { at: number; value: boolean } | null = null
+async function ytDlpSeesPotPlugin() {
+  if (ytDlpPluginCheck && Date.now() - ytDlpPluginCheck.at < 5 * 60_000) return ytDlpPluginCheck.value
+  const ytDlp = resolveTool('yt-dlp')
+  if (!ytDlp) return false
+  const result = await run(ytDlp, ['-v', '--ignore-config'], { timeoutMs: 30_000 })
+  const listed = `${result.stdout}\n${result.stderr}`.match(/Plugin directories:\s*(.+)/i)?.[1] ?? ''
+  const value = listed.split(/,\s*/).some(folder => {
+    try { return fs.readdirSync(path.join(folder.trim(), 'extractor')).some(file => file.startsWith('getpot_')) } catch { return false }
+  })
+  ytDlpPluginCheck = { at: Date.now(), value }
+  return value
 }
 
 /**
@@ -923,8 +946,12 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
   // tokenless.
   let premiumReady = false
   if ((options.premiumAudio || options.requirePremium) && youtube && hasCookies()) {
+    // A running server is the only thing that has to be true. Whether yt-dlp
+    // loads the plugin is settled by trying: without it the music client comes
+    // back empty and the ordinary retry below takes over. Gating on a guess
+    // about the plugin once kept Premium off while everything worked.
     const pot = await startPotProvider()
-    premiumReady = pot.running && pot.plugin
+    premiumReady = pot.running
   }
   if (options.requirePremium && !premiumReady) throw new Error('Premium audio is not ready: it needs a signed-in session and the token provider. Run the quality check in Downloads to see which part is missing.')
   // An upgrade keeps whichever Premium stream arrives rather than converting it.
@@ -1055,10 +1082,15 @@ export async function checkDownloadQuality(options: { format: AudioFormat; premi
     steps.push({ id: 'token', label: 'Premium token server', state: 'skip', detail: '256 kbps audio is switched off.' })
   } else {
     const pot = await startPotProvider()
-    tokenReady = pot.running && pot.plugin
+    // Try Premium whenever the server answers; the test download below is the
+    // real verdict on the plugin, and corrects this step if it disagrees.
+    tokenReady = pot.running
     steps.push({
-      id: 'token', label: 'Premium token server', state: tokenReady ? 'ok' : 'fail',
-      detail: tokenReady ? 'Running.' : !pot.folder ? 'The token provider is not installed.' : !pot.plugin ? 'The yt-dlp plugin for the token provider is missing.' : 'Found, but it would not start. It needs Node.js on PATH.',
+      id: 'token', label: 'Premium token server',
+      state: pot.running ? (pot.plugin ? 'ok' : 'warn') : 'fail',
+      detail: pot.running
+        ? pot.plugin ? 'Running.' : 'Running, but yt-dlp does not list the token plugin. The test download below settles whether it works.'
+        : !pot.folder ? 'The token provider is not installed.' : 'Found, but it would not start. It needs Node.js on PATH.',
     })
   }
 
@@ -1083,6 +1115,12 @@ export async function checkDownloadQuality(options: { format: AudioFormat; premi
   }
   const converted = options.format === 'mp3' || options.format === 'flac' ? options.format.toUpperCase() : null
   const expected = { ...chosen, converted }
+  // A Premium stream arriving proves the token chain works end to end, so
+  // no earlier guess about the plugin gets to say otherwise.
+  if (chosen.premium) {
+    const token = steps.find(step => step.id === 'token')
+    if (token && token.state !== 'ok') Object.assign(token, { state: 'ok', detail: 'Running, and YouTube Music accepted its token.' })
+  }
   const described = `${chosen.codec} ${chosen.kbps ?? '?'} kbps${chosen.sampleRate ? `, ${(chosen.sampleRate / 1000).toFixed(1)} kHz` : ''}`
   steps.push({ id: 'stream', label: 'Test download', state: chosen.premium || !options.premiumAudio ? 'ok' : 'warn', detail: `YouTube would send stream ${chosen.formatId}: ${described}.` })
 

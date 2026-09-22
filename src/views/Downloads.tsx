@@ -327,7 +327,7 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
               <small className="settings-note">
                 Three things have to be true, and YouTube tells you about none of them: a live <b>Premium</b> subscription, a <b>signed-in cookies.txt</b>, and the <b>token provider</b> below. Miss any one and you silently get 130 kbps.<br /><br />
                 Provider found: <b>{pot?.folder ?? 'no'}</b> · yt-dlp plugin: <b>{pot?.plugin ? 'installed' : 'missing'}</b> · server: <b>{pot?.running ? 'running' : 'stopped'}</b>.<br /><br />
-                To install it: clone <b>github.com/Brainicism/bgutil-ytdlp-pot-provider</b>, run <b>npm ci &amp;&amp; npx tsc</b> in its <b>server</b> folder, and copy its <b>plugin/yt_dlp_plugins</b> folder into <b>%APPDATA%yt-dlppluginsgutil-pot</b>. Lyrigen looks for it beside your tools folder. It is third-party software and Lyrigen neither ships nor installs it.
+                To install it: clone <b>github.com/Brainicism/bgutil-ytdlp-pot-provider</b> into <b>%APPDATA%\Lyrigen\pot-provider</b>, run <b>npm ci &amp;&amp; npx tsc</b> in its <b>server</b> folder, and copy its <b>plugin\yt_dlp_plugins</b> folder into <b>%APPDATA%\yt-dlp\plugins\bgutil-pot\</b>. Lyrigen starts the server itself whenever a download needs it. It is third-party software and Lyrigen neither ships nor installs it.
               </small>
               {!pot?.running && pot?.folder && <button className="mini-button" disabled={startingPot} onClick={() => { setStartingPot(true); void window.electronAPI.startPotProvider().then(setPot).finally(() => setStartingPot(false)) }}>Start the token server</button>}
             </div>}
