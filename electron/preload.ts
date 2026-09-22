@@ -28,7 +28,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateSettings: (settings: unknown) => ipcRenderer.invoke('update-settings', settings),
   planDuplicateCleanup: () => ipcRenderer.invoke('plan-duplicate-cleanup'),
   checkDownloadPaths: () => ipcRenderer.invoke('check-download-paths'),
+  getArtworkColor: (filePath: string) => ipcRenderer.invoke('get-artwork-color', filePath),
   getPotStatus: () => ipcRenderer.invoke('pot-status'),
+  checkDownloadQuality: (url?: string | null) => ipcRenderer.invoke('check-download-quality', url ?? null),
+  scanLibraryQuality: () => ipcRenderer.invoke('scan-library-quality'),
+  enqueueUpgrades: (candidates: unknown[]) => ipcRenderer.invoke('enqueue-upgrades', candidates),
+  onLibraryQualityProgress: (callback: (progress: { done: number; total: number }) => void) => {
+    const listener = (_event: unknown, progress: { done: number; total: number }) => callback(progress)
+    ipcRenderer.on('library-quality-progress', listener)
+    return () => { ipcRenderer.removeListener('library-quality-progress', listener) }
+  },
   startPotProvider: () => ipcRenderer.invoke('start-pot-provider'),
   trashFiles: (paths: string[]) => ipcRenderer.invoke('trash-files', paths),
   inspectCookiesFile: (filePath: string) => ipcRenderer.invoke('inspect-cookies-file', filePath),

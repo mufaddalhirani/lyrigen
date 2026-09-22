@@ -3,6 +3,7 @@ import { type LyricLine } from '@applemusic-like-lyrics/lyric'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
 import { MaterialIcon } from './common/MaterialIcon'
+import { QualityBadge } from './common/QualityBadge'
 import { parseLyricDocument, exportLyricDocument, fromAlignmentJson, type LyricDocument } from '../lib/lyrics'
 import { EQ_FREQUENCIES, EQ_PRESETS, useAudioPlayer } from '../hooks/useAudioPlayer'
 import '@applemusic-like-lyrics/core/style.css'
@@ -580,7 +581,7 @@ export function Player({
         <section className="artwork-column">
           <div className="visualizer-stage" aria-label="Reactive audio visualizer">{VISUALIZER_BARS.map(index => <i key={index} style={{ '--bar-phase': `${index * 0.13}s`, '--bar-height': `${34 + (index % 5) * 12}%` } as CSSProperties} />)}</div>
           <div className={`hero-artwork ${isPlaying ? 'is-playing' : ''}`}>{visualMode === 'vinyl' && <div className="vinyl-rim" aria-hidden="true" />}{coverUrl ? <img src={coverUrl} alt={`${displayAlbum} cover`} /> : <div className="hero-placeholder">♫</div>}<div className="hero-glass-highlight" /></div>
-          <div className="track-details"><h1>{displayTitle}</h1><h2>{displayArtist}</h2><p>{displayAlbum}</p><span className="quality-chip">{qualityLabel(metadata, format)}</span></div>
+          <div className="track-details"><h1>{displayTitle}</h1><h2>{displayArtist}</h2><p>{displayAlbum}</p><span className="quality-chip">{qualityLabel(metadata, format)}<QualityBadge source={{ lossless: metadata?.lossless, kbps: metadata?.bitrate ? Math.round(metadata.bitrate / 1000) : null, sampleRate: metadata?.sampleRate, bitDepth: metadata?.bitsPerSample, codec: metadata?.codec, format }} /></span></div>
         </section>
 
         <section className="lyrics-column liquid-panel">

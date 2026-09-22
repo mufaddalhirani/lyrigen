@@ -37,6 +37,10 @@ interface LibraryTrack {
   fileSize: number
   format: string
   lossless: boolean | null
+  kbps?: number | null
+  sampleRate?: number | null
+  bitDepth?: number | null
+  codec?: string | null
   genre: string | null
   isDuplicate: boolean
   possibleDuplicate?: boolean
@@ -265,6 +269,23 @@ interface SongMetadata {
 }
 
 interface ToolStatus { name: 'yt-dlp' | 'ffmpeg' | 'ffprobe' | 'ffplay'; path: string | null; version: string | null; ok: boolean }
+interface QualityCheckStep { id: 'tools' | 'engine' | 'signin' | 'token' | 'stream'; label: string; state: 'ok' | 'warn' | 'fail' | 'skip'; detail: string }
+interface QualityCheckResult {
+  steps: QualityCheckStep[]
+  expected: { formatId: string; codec: string; kbps: number | null; sampleRate: number | null; premium: boolean; converted: string | null } | null
+  headline: string
+  testedUrl: string
+}
+interface UpgradeCandidate { path: string; videoId: string; kbps: number | null; codec: string | null; title: string; artist: string | null }
+interface LibraryQualityReport {
+  scanned: number
+  premium: number
+  lossless: number
+  upgradable: UpgradeCandidate[]
+  noBetterStream: number
+  unknownSource: number
+  bands: { under96: number; to160: number; to200: number; over200: number }
+}
 interface PotStatus { folder: string | null; plugin: boolean; running: boolean }
 interface JsRuntimeStatus { available: boolean; kind: 'deno' | 'node' | 'bun' | 'electron' | null; path: string | null }
 interface ToolsStatus { tools: ToolStatus[]; searchedFolders: string[]; ready: boolean; jsRuntime: JsRuntimeStatus }
@@ -359,6 +380,7 @@ interface DownloadJob {
   lyricRetimed: boolean
   lyricEmbedded: boolean
   audio?: { codec: string | null; kbps: number | null; sampleRate: number | null } | null
+  upgradeOf?: { path: string; kbps: number | null; kept?: boolean } | null
   attempts: number
   retryAt: string | null
   options: DownloadOptions
@@ -436,8 +458,13 @@ interface ElectronAPI {
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
   planDuplicateCleanup: () => Promise<DuplicateGroup[]>
   checkDownloadPaths: () => Promise<Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }>>
+  getArtworkColor: (filePath: string) => Promise<string | null>
   getPotStatus: () => Promise<PotStatus>
   startPotProvider: () => Promise<PotStatus>
+  checkDownloadQuality: (url?: string | null) => Promise<QualityCheckResult>
+  scanLibraryQuality: () => Promise<LibraryQualityReport>
+  enqueueUpgrades: (candidates: UpgradeCandidate[]) => Promise<number>
+  onLibraryQualityProgress: (callback: (progress: { done: number; total: number }) => void) => () => void
   trashFiles: (paths: string[]) => Promise<{ trashed: number; failed: string[] }>
   inspectCookiesFile: (filePath: string) => Promise<{ ok: boolean; message: string }>
   chooseCookiesFile: () => Promise<{ path: string; ok: boolean; message: string } | null>

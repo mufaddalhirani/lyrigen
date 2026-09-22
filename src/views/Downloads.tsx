@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/common/Icon'
 import { prettyTime } from '../lib/format'
+import { QualityPanel } from '../components/QualityPanel'
 
 /**
  * Downloads: paste links → inspect (yt-dlp reads title/uploader/duration and
@@ -27,6 +28,7 @@ const PAGE = 80
 const ACTIVE: DownloadJobStatus[] = ['queued', 'inspecting', 'downloading', 'converting', 'tagging', 'lyrics', 'organizing', 'waiting', 'paused']
 
 function statusLabel(job: DownloadJob) {
+  if (job.status === 'done' && job.upgradeOf) return job.upgradeOf.kept ? 'Kept' : 'Upgraded'
   if (job.status === 'done') return 'Done'
   if (job.status === 'error') return 'Failed'
   if (job.status === 'cancelled') return 'Cancelled'
@@ -206,6 +208,8 @@ export function Downloads({ onPlayFile, flash }: { onPlayFile: (audioPath: strin
         <button className="mini-button" onClick={() => { setShowSettings(true); void window.electronAPI.checkDownloadPaths().then(setMissingPaths).catch(() => undefined) }}>Open download options</button>
       </div>
     </div>}
+
+    {settings && ready && <QualityPanel settings={settings} testUrl={urls.split(/\s+/).find(line => /^https?:\/\//i.test(line)) ?? null} flash={flash} onOpenOptions={() => setShowSettings(true)} />}
 
     <div className="tools-strip">
       {(tools?.tools ?? []).map(tool => <span key={tool.name} className={`tool-chip ${tool.ok ? 'ok' : ''}`} title={tool.path || 'Not found'}><i />{tool.name}{tool.version && <small>{tool.version.length > 14 ? tool.version.slice(0, 14) : tool.version}</small>}</span>)}

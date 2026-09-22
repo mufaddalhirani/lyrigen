@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { ChildProcess } from 'node:child_process'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { buildRelativePath, parseSongName, primaryArtist, stripYoutubeIdSuffix, uniquePath, PATH_PRESETS, type SongVariant } from './song-naming'
-import { downloadAudio, embedLyrics, inspectUrl, isChromiumBrowser, isCookieDecryptError, isCookieLockedError, isOfflineError, isRetryableYtDlpError, needsCookies, probe, setCookieSource, writeTags, type AudioFormat, type AudioQuality, type CookieSource, type DownloadProgress, type LyricEmbedOutcome, type VideoInfo } from './media-tools'
+import { NO_PREMIUM_STREAM, downloadAudio, embedLyrics, inspectUrl, isChromiumBrowser, isCookieDecryptError, isCookieLockedError, isOfflineError, isRetryableYtDlpError, needsCookies, probe, setCookieSource, writeTags, type AudioFormat, type AudioQuality, type CookieSource, type DownloadProgress, type LyricEmbedOutcome, type VideoInfo } from './media-tools'
 import { findBestLyrics, lyricExtension, lyricLines, lyricsToPlainText, retimeLyrics, type LyricFormat, type LyricLookupResult } from './lyrics-sources'
 
 /**
@@ -71,6 +71,12 @@ export interface DownloadJob {
    * only way to learn a download was 130 kbps was an external analyzer.
    */
   audio?: { codec: string | null; kbps: number | null; sampleRate: number | null } | null
+  /**
+   * Set when this job replaces a file already in the library with a better
+   * stream, rather than adding a new song. `kept` records the outcome when
+   * nothing better existed and the original was left alone.
+   */
+  upgradeOf?: { path: string; kbps: number | null; kept?: boolean } | null
   /** How many times this job has been attempted, for backoff. */
   attempts: number
   /** When an automatic retry is due, while `status` is `waiting`. */
@@ -214,7 +220,36 @@ export function defaultSettings(): DownloadSettings {
   }
 }
 
-interface StoreShape { settings: DownloadSettings; jobs: DownloadJob[]; organizeJournal: Array<{ at: string; moves: Array<{ from: string; to: string }> }> }
+interface StoreShape {
+  settings: DownloadSettings
+  jobs: DownloadJob[]
+  organizeJournal: Array<{ at: string; moves: Array<{ from: string; to: string }> }>
+  /**
+   * Video ids already checked and found to have no Premium stream — fan
+   * uploads, sped-up edits, most things that are not catalogue songs. Kept so
+   * a second "upgrade my library" does not re-ask YouTube about thousands of
+   * songs that have nothing better to give.
+   */
+  noPremiumStream: string[]
+}
+
+/** A library file that could be replaced by YouTube Music's Premium stream. */
+export interface UpgradeCandidate { path: string; videoId: string; kbps: number | null; codec: string | null; title: string; artist: string | null }
+
+export interface LibraryQualityReport {
+  scanned: number
+  /** 200 kbps and up — already Premium quality or better. */
+  premium: number
+  lossless: number
+  /** Below 200 kbps with a YouTube source, so an upgrade can be tried. */
+  upgradable: UpgradeCandidate[]
+  /** Below 200 kbps and already checked: YouTube has nothing better. */
+  noBetterStream: number
+  /** Below 200 kbps with no YouTube link to go back to. */
+  unknownSource: number
+  /** Songs per bitrate band, for the chart. */
+  bands: { under96: number; to160: number; to200: number; over200: number }
+}
 
 // ---------------------------------------------------------------------------
 // "Do I already have this?" — the library index
@@ -436,8 +471,8 @@ export class Downloader {
   private load(): StoreShape {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<StoreShape>
-      return { settings: { ...defaultSettings(), ...(parsed.settings ?? {}) }, jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [], organizeJournal: Array.isArray(parsed.organizeJournal) ? parsed.organizeJournal : [] }
-    } catch { return { settings: defaultSettings(), jobs: [], organizeJournal: [] } }
+      return { settings: { ...defaultSettings(), ...(parsed.settings ?? {}) }, jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [], organizeJournal: Array.isArray(parsed.organizeJournal) ? parsed.organizeJournal : [], noPremiumStream: Array.isArray(parsed.noPremiumStream) ? parsed.noPremiumStream : [] }
+    } catch { return { settings: defaultSettings(), jobs: [], organizeJournal: [], noPremiumStream: [] } }
   }
 
   /**
@@ -820,6 +855,7 @@ export class Downloader {
     const tempDir = path.join(app.getPath('userData'), 'download-temp', job.id)
     try {
       await fs.promises.mkdir(tempDir, { recursive: true })
+      if (job.upgradeOf) { await this.runUpgrade(job, tempDir, isCancelled); return }
       // 1. Inspect (skipped when the GUI already inspected and handed us metadata).
       if (!job.info || !job.metadata) {
         this.update(job, { status: 'inspecting', stage: 'Reading link…' })
@@ -931,6 +967,155 @@ export class Downloader {
    * song's *final* path while the audio itself is still in the temp folder —
    * the sidecar and the file it belongs to are not in the same place yet.
    */
+  // ---------------------------------------------------------------------
+  // Library quality and in-place upgrades
+  // ---------------------------------------------------------------------
+
+  /**
+   * Measure every song in the library and find the ones worth upgrading.
+   *
+   * Bitrate is read from the file itself; the YouTube id comes from the source
+   * link Lyrigen writes into the tags, or the `[id]` yt-dlp leaves in a name.
+   * A file with neither has nowhere to be upgraded from, so it is counted but
+   * not offered.
+   */
+  async scanLibraryQuality(onProgress?: (done: number, total: number) => void): Promise<LibraryQualityReport> {
+    const folders = Array.from(new Set([...this.libraryFolders(), this.state.settings.destination].filter(folder => folder && fs.existsSync(folder))))
+    const seen = new Set<string>()
+    const files: string[] = []
+    for (const folder of folders) for (const file of await collectAudio(folder)) {
+      const key = file.toLocaleLowerCase()
+      if (!seen.has(key)) { seen.add(key); files.push(file) }
+    }
+    const known = new Set(this.state.noPremiumStream)
+    const pending = new Set(this.state.jobs.filter(job => job.upgradeOf && IN_FLIGHT.has(job.status)).map(job => job.upgradeOf!.path.toLocaleLowerCase()))
+    const report: LibraryQualityReport = { scanned: 0, premium: 0, lossless: 0, upgradable: [], noBetterStream: 0, unknownSource: 0, bands: { under96: 0, to160: 0, to200: 0, over200: 0 } }
+    const queue = [...files]
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      while (queue.length) {
+        const file = queue.shift()!
+        const probed = await probe(file).catch(() => null)
+        report.scanned += 1
+        if (report.scanned % 25 === 0 || report.scanned === files.length) onProgress?.(report.scanned, files.length)
+        if (!probed) continue
+        if (/^(flac|alac|wavpack|ape|tta|pcm_)/i.test(probed.codec ?? '')) { report.lossless += 1; continue }
+        // Container bitrate includes the cover, a few kbps at most; 200 still
+        // separates the 130 kbps streams from the 256 kbps ones cleanly.
+        const kbps = probed.bitrate ? Math.round(probed.bitrate / 1000) : null
+        if (kbps != null) {
+          if (kbps < 96) report.bands.under96 += 1
+          else if (kbps < 160) report.bands.to160 += 1
+          else if (kbps < 200) report.bands.to200 += 1
+          else report.bands.over200 += 1
+        }
+        if (kbps != null && kbps >= 200) { report.premium += 1; continue }
+        const link = `${probed.tags.purl ?? ''} ${probed.tags.comment ?? ''}`
+        const videoId = link.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1] ?? link.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1] ?? stripYoutubeIdSuffix(path.parse(file).name).videoId
+        if (!videoId) { report.unknownSource += 1; continue }
+        if (known.has(videoId)) { report.noBetterStream += 1; continue }
+        if (pending.has(file.toLocaleLowerCase())) continue
+        report.upgradable.push({ path: file, videoId, kbps, codec: probed.codec, title: probed.tags.title || path.parse(file).name, artist: probed.tags.artist || null })
+      }
+    }))
+    report.upgradable.sort((left, right) => (left.kbps ?? 0) - (right.kbps ?? 0))
+    return report
+  }
+
+  /** Queue in-place upgrades. Lowest bitrate first, since those gain the most. */
+  enqueueUpgrades(candidates: UpgradeCandidate[]) {
+    const inFlight = new Set(this.state.jobs.filter(job => IN_FLIGHT.has(job.status)).map(job => job.videoId).filter(Boolean))
+    const options: DownloadOptions = { ...this.state.settings, premiumAudio: true, skipDuplicates: false }
+    let created = 0
+    for (const candidate of candidates) {
+      if (inFlight.has(candidate.videoId) || !fs.existsSync(candidate.path)) continue
+      inFlight.add(candidate.videoId)
+      this.state.jobs.push({
+        id: crypto.randomUUID(), url: `https://www.youtube.com/watch?v=${candidate.videoId}`, videoId: candidate.videoId, status: 'queued', stage: 'Waiting to upgrade', progress: 0, speed: null, eta: null, totalSize: null, error: null,
+        createdAt: new Date().toISOString(), finishedAt: null,
+        info: { title: candidate.title, uploader: candidate.artist, thumbnail: `https://i.ytimg.com/vi/${candidate.videoId}/hqdefault.jpg`, duration: null, extractor: 'youtube' },
+        metadata: { artist: candidate.artist, title: candidate.title, album: null, albumArtist: null, featuring: null, variant: null, year: null, genre: null, confidence: 'high', origin: 'tags' },
+        outputPath: null, lyricPath: null, lyricSource: null, lyricRetimed: false, lyricEmbedded: false, attempts: 0, retryAt: null, options,
+        upgradeOf: { path: candidate.path, kbps: candidate.kbps },
+      })
+      created += 1
+    }
+    this.persist(true)
+    this.emit('jobs', this.jobs)
+    void this.pump()
+    return created
+  }
+
+  /**
+   * Replace a library file with YouTube Music's Premium stream for it.
+   *
+   * The new file only goes in if it is genuinely better — at least a quarter
+   * more bitrate — and it inherits the old file's tags, lyrics and name, so the
+   * library sees the same song, only better. The old file goes to the Recycle
+   * Bin, and it only goes once the new one is safely staged beside it.
+   */
+  private async runUpgrade(job: DownloadJob, tempDir: string, isCancelled: () => boolean) {
+    const upgrade = job.upgradeOf!
+    const finish = (patch: Partial<DownloadJob>) => this.update(job, { status: 'done', progress: 100, speed: null, eta: null, finishedAt: new Date().toISOString(), ...patch })
+    if (!fs.existsSync(upgrade.path)) throw new Error('The original file is no longer there.')
+    const before = await probe(upgrade.path)
+    const oldTags = before?.tags ?? {}
+    const oldKbps = before?.bitrate ? Math.round(before.bitrate / 1000) : upgrade.kbps
+    const oldAudio = { codec: before?.codec ?? null, kbps: oldKbps, sampleRate: before?.sampleRate ?? null }
+    this.update(job, { status: 'downloading', stage: 'Asking YouTube Music for the Premium stream…', progress: 0 })
+    let outcome: Awaited<ReturnType<typeof downloadAudio>>
+    try {
+      outcome = await downloadAudio(job.url, tempDir, {
+        format: job.options.format, quality: job.options.quality, embedThumbnail: true, requirePremium: true,
+        onSpawn: child => this.children.set(job.id, child),
+        onProgress: progress => { if (!isCancelled()) this.update(job, { status: progress.stage === 'downloading' ? 'downloading' : 'converting', stage: 'Downloading the Premium stream…', progress: progress.percent, speed: progress.speed, eta: progress.eta, totalSize: progress.totalSize }) },
+      })
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== NO_PREMIUM_STREAM) throw error
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
+      if (job.videoId && !this.state.noPremiumStream.includes(job.videoId)) this.state.noPremiumStream.push(job.videoId)
+      finish({ stage: `Kept · YouTube has nothing better than ${oldKbps ?? '?'} kbps for this one`, outputPath: upgrade.path, audio: oldAudio, upgradeOf: { ...upgrade, kept: true } })
+      return
+    }
+    if (isCancelled()) { await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined); return }
+    const after = await probe(outcome.filePath)
+    const newKbps = after?.bitrate ? Math.round(after.bitrate / 1000) : null
+    const audio = { codec: after?.codec ?? null, kbps: newKbps, sampleRate: after?.sampleRate ?? null }
+    if (!newKbps || (oldKbps && newKbps < oldKbps * 1.25)) {
+      await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
+      finish({ stage: `Kept · the Premium stream (${newKbps ?? '?'} kbps) is no better than this file (${oldKbps ?? '?'} kbps)`, outputPath: upgrade.path, audio: oldAudio, upgradeOf: { ...upgrade, kept: true } })
+      return
+    }
+    // Same song, same name, same tags — only the audio changes.
+    this.update(job, { status: 'tagging', stage: 'Carrying over tags and lyrics…', progress: 100, speed: null, eta: null })
+    await writeTags(outcome.filePath, {
+      title: oldTags.title || job.metadata?.title || null, artist: oldTags.artist || job.metadata?.artist || null,
+      album: oldTags.album ?? null, albumArtist: oldTags.album_artist ?? oldTags.albumartist ?? null,
+      genre: oldTags.genre ?? null, date: oldTags.date ?? oldTags.year ?? null, track: oldTags.track ?? undefined, sourceUrl: job.url,
+    }).catch(error => console.warn('Upgrade: could not carry the tags over', error))
+    const base = path.join(path.dirname(upgrade.path), path.parse(upgrade.path).name)
+    const sidecar = ['.ttml', '.lrc', '.txt'].map(extension => `${base}${extension}`).find(candidate => fs.existsSync(candidate))
+    let lyricEmbedded = false
+    if (sidecar) {
+      const format: LyricFormat = sidecar.endsWith('.ttml') ? 'ttml' : sidecar.endsWith('.lrc') ? 'lrc' : 'plain'
+      const embedded = await this.embedLyricsInto(outcome.filePath, await fs.promises.readFile(sidecar, 'utf8'), format)
+      lyricEmbedded = embedded === 'id3' || embedded === 'tag'
+    } else if (oldTags.lyrics) {
+      lyricEmbedded = (await embedLyrics(outcome.filePath, { plain: oldTags.lyrics, lines: null }).catch(() => 'failed')) === 'tag'
+    }
+    this.update(job, { status: 'organizing', stage: 'Swapping in the new file…' })
+    const target = `${base}${path.extname(outcome.filePath)}`
+    const replacingInPlace = path.resolve(target).toLocaleLowerCase() === path.resolve(upgrade.path).toLocaleLowerCase()
+    if (!replacingInPlace && fs.existsSync(target)) throw new Error(`${path.basename(target)} already exists beside the original.`)
+    const staging = `${base}.lyrigen-upgrade${path.extname(outcome.filePath)}`
+    await moveFile(outcome.filePath, staging)
+    try { await shell.trashItem(upgrade.path) } catch (error) { await fs.promises.rm(staging, { force: true }).catch(() => undefined); throw error }
+    await fs.promises.rename(staging, target)
+    if (outcome.thumbnailPath) await fs.promises.rm(outcome.thumbnailPath, { force: true }).catch(() => undefined)
+    await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
+    this.invalidateLibraryIndex()
+    finish({ stage: `Upgraded · ${oldKbps ?? '?'} → ${newKbps} kbps`, outputPath: target, lyricPath: sidecar ?? null, lyricEmbedded, audio })
+  }
+
   async saveLyricsBeside(audioPath: string, lyrics: LyricLookupResult, options: { fileDuration: number | null; allowRetime: boolean; overwrite?: boolean; embed?: boolean; embedInto?: string | null }): Promise<{ path: string | null; source: string | null; retimed: boolean; embedded: LyricEmbedOutcome | null }> {
     if (!lyrics.found) return { path: null, source: null, retimed: false, embedded: null }
     const format: LyricFormat = lyrics.ttmlLyrics ? 'ttml' : lyrics.syncedLyrics ? 'lrc' : 'plain'

@@ -20,7 +20,8 @@
     "clean:release": "node scripts/clean-release.mjs",
     "release:patch": "node scripts/bump-version.mjs patch && node scripts/clean-release.mjs && npm run build",
     "release:minor": "node scripts/bump-version.mjs minor && node scripts/clean-release.mjs && npm run build",
-    "release:major": "node scripts/bump-version.mjs major && node scripts/clean-release.mjs && npm run build"
+    "release:major": "node scripts/bump-version.mjs major && node scripts/clean-release.mjs && npm run build",
+    "shot:tour": "node scripts/tour-shot.mjs"
   },
   "build": {
     "appId": "com.lyrigen.player",

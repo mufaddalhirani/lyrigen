@@ -173,15 +173,19 @@ export interface ProbeResult {
 export async function probe(filePath: string): Promise<ProbeResult | null> {
   const ffprobe = resolveTool('ffprobe')
   if (!ffprobe) return null
-  const result = await run(ffprobe, ['-v', 'error', '-show_entries', 'format=duration,bit_rate:format_tags:stream=codec_type,codec_name,sample_rate,disposition', '-of', 'json', filePath], { timeoutMs: 30_000 })
+  const result = await run(ffprobe, ['-v', 'error', '-show_entries', 'format=duration,bit_rate:format_tags:stream=codec_type,codec_name,sample_rate,disposition:stream_tags', '-of', 'json', filePath], { timeoutMs: 30_000 })
   if (result.code !== 0) return null
   try {
     const parsed = JSON.parse(result.stdout.replace(/^\uFEFF/, '')) as {
       format?: { duration?: string; bit_rate?: string; tags?: Record<string, string> }
-      streams?: Array<{ codec_type?: string; codec_name?: string; sample_rate?: string; disposition?: { attached_pic?: number } }>
+      streams?: Array<{ codec_type?: string; codec_name?: string; sample_rate?: string; disposition?: { attached_pic?: number }; tags?: Record<string, string> }>
     }
     const audio = parsed.streams?.find(stream => stream.codec_type === 'audio')
     const tags: Record<string, string> = {}
+    // Ogg keeps its comments on the audio stream, not the file, so reading only
+    // file-level tags made every Opus song look untagged \u2014 to the organiser, the
+    // duplicate check, everything. Stream tags first, file tags over the top.
+    for (const [key, value] of Object.entries(audio?.tags ?? {})) tags[key.toLocaleLowerCase()] = String(value)
     for (const [key, value] of Object.entries(parsed.format?.tags ?? {})) tags[key.toLocaleLowerCase()] = String(value)
     return {
       duration: parsed.format?.duration ? Number(parsed.format.duration) : null,
@@ -846,7 +850,14 @@ export interface DownloadOutcome {
  * MP3 and FLAC have no matching YouTube stream, so those re-encode whatever the
  * best source is and there is nothing to gain by being fussy.
  */
-function audioFormatSelector(format: AudioFormat, premiumAudio = false, youtube = true) {
+function audioFormatSelector(format: AudioFormat, premiumAudio = false, youtube = true, premiumOnly = false) {
+  // An upgrade wants a Premium stream or nothing. Without the ordinary tail,
+  // yt-dlp refuses before a byte is fetched when the track has none, so
+  // checking a whole library costs one lookup per song, not one download.
+  // Either Premium codec is fine here — upgrades keep whatever arrives as is.
+  if (premiumOnly) return format === 'opus'
+    ? 'bestaudio[acodec=opus][abr>200]/bestaudio[acodec^=mp4a][abr>200]'
+    : 'bestaudio[acodec^=mp4a][abr>200]/bestaudio[acodec=opus][abr>200]'
   // The trailing `best` is a muxed *video*. On YouTube that is format 18, a
   // 360p clip whose audio track is often HE-AAC at ~50 kbps — and when a client
   // serves no audio-only streams (web_music without its token does exactly
@@ -891,7 +902,10 @@ function audioFormatSelector(format: AudioFormat, premiumAudio = false, youtube 
  */
 const RESILIENCE_ARGS = ['--retries', '10', '--fragment-retries', '10', '--extractor-retries', '3', '--socket-timeout', '30', '--concurrent-fragments', '4']
 
-export async function downloadAudio(url: string, outputDir: string, options: { format: AudioFormat; quality: AudioQuality; embedThumbnail: boolean; premiumAudio?: boolean; onProgress: (progress: DownloadProgress) => void; onSpawn: (child: ChildProcess) => void }): Promise<DownloadOutcome> {
+/** Thrown when an upgrade finds no Premium stream for a track, so the caller can keep the file it has. */
+export const NO_PREMIUM_STREAM = 'No Premium stream is offered for this track.'
+
+export async function downloadAudio(url: string, outputDir: string, options: { format: AudioFormat; quality: AudioQuality; embedThumbnail: boolean; premiumAudio?: boolean; requirePremium?: boolean; onProgress: (progress: DownloadProgress) => void; onSpawn: (child: ChildProcess) => void }): Promise<DownloadOutcome> {
   const ytDlp = resolveTool('yt-dlp')
   const ffmpegDir = ffmpegLocation()
   if (!ytDlp) throw new Error('yt-dlp was not found.')
@@ -908,20 +922,23 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
   // switched on, so after any restart every "Premium" download quietly ran
   // tokenless.
   let premiumReady = false
-  if (options.premiumAudio && youtube && hasCookies()) {
+  if ((options.premiumAudio || options.requirePremium) && youtube && hasCookies()) {
     const pot = await startPotProvider()
     premiumReady = pot.running && pot.plugin
   }
+  if (options.requirePremium && !premiumReady) throw new Error('Premium audio is not ready: it needs a signed-in session and the token provider. Run the quality check in Downloads to see which part is missing.')
+  // An upgrade keeps whichever Premium stream arrives rather than converting it.
+  const format: AudioFormat = options.requirePremium ? 'best' : options.format
   const attempt = (withCookies: boolean, premium: boolean) => {
     finalPath = null
     stage = 'downloading'
-    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format, premium, youtube), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
+    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(withCookies), '--no-playlist', '--newline', '--progress', '--no-mtime', '--no-overwrites', '--ffmpeg-location', ffmpegDir, '-f', audioFormatSelector(options.format, premium, youtube, Boolean(options.requirePremium)), ...RESILIENCE_ARGS, '-x', '--embed-metadata', '--no-embed-info-json', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', template, '-o', `thumbnail:${template}`]
     // The Premium streams live behind the music client, which is also the one
     // that needs the token. Dropping both on the anonymous retry is deliberate:
     // without a signed-in session there is nothing there to ask for.
     if (premium) args.push('--extractor-args', 'youtube:player_client=web_music')
-    if (options.format !== 'best') {
-      args.push('--audio-format', options.format)
+    if (format !== 'best') {
+      args.push('--audio-format', format)
       // Only bites when ffmpeg actually re-encodes. When the stream already
       // matches the container yt-dlp copies it and ignores this.
       args.push('--audio-quality', options.quality === 'best' ? '0' : options.quality === 'high' ? '2' : '5')
@@ -943,14 +960,18 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
     })
   }
   let result = await attempt(true, premiumReady)
+  if (options.requirePremium) {
+    // No fallbacks for an upgrade: the ordinary stream is what the file already is.
+    if (result.code !== 0 && /requested format is not available|no video formats|only images are available/i.test(result.stderr)) throw new Error(NO_PREMIUM_STREAM)
+  }
   // The music client can still come back with no audio for a particular
   // track — an official video rather than a catalogue song, or a token that
   // could not be minted. The ordinary clients serve those fine, so try them
   // before calling it a failure.
-  if (result.code !== 0 && premiumReady) result = await attempt(true, false)
+  if (result.code !== 0 && premiumReady && !options.requirePremium) result = await attempt(true, false)
   // A signed-in request takes a stricter path through YouTube than an anonymous
   // one; when that is what broke, the public stream is usually still there.
-  if (result.code !== 0 && hasCookies() && worthRetryingWithoutCookies(String(result.stderr))) result = await attempt(false, false)
+  if (result.code !== 0 && hasCookies() && !options.requirePremium && worthRetryingWithoutCookies(String(result.stderr))) result = await attempt(false, false)
   if (result.code !== 0) throw new Error(cleanYtDlpError(result.stderr) || 'yt-dlp stopped with an error.')
   // yt-dlp prints the pre-conversion destination first and the converted one later; trust the last audio file it mentioned that still exists.
   const audioExtensions = new Set(['.mp3', '.m4a', '.opus', '.flac', '.ogg', '.webm', '.wav', '.aac', '.mka'])
@@ -964,6 +985,115 @@ export async function downloadAudio(url: string, outputDir: string, options: { f
   if (!filePath) throw new Error('The download finished but no audio file was produced.')
   const thumbnailPath = path.join(outputDir, `${path.parse(filePath).name}.jpg`)
   return { filePath, thumbnailPath: fs.existsSync(thumbnailPath) ? thumbnailPath : null }
+}
+
+// ---------------------------------------------------------------------------
+// Quality check: what will the next download actually be?
+// ---------------------------------------------------------------------------
+
+export interface QualityCheckStep { id: 'tools' | 'engine' | 'signin' | 'token' | 'stream'; label: string; state: 'ok' | 'warn' | 'fail' | 'skip'; detail: string }
+export interface QualityCheckResult {
+  steps: QualityCheckStep[]
+  /** The stream a download would take right now — chosen by yt-dlp itself, not predicted. */
+  expected: { formatId: string; codec: string; kbps: number | null; sampleRate: number | null; premium: boolean; converted: string | null } | null
+  headline: string
+  testedUrl: string
+}
+
+/** Rick Astley, 2022 remaster: a catalogue track that has both Premium streams. */
+const QUALITY_TEST_URL = 'https://www.youtube.com/watch?v=3BFTio5296w'
+
+function codecName(acodec: string | undefined) {
+  if (!acodec) return 'Unknown'
+  if (/^opus/i.test(acodec)) return 'Opus'
+  if (/mp4a\.40\.5|mp4a\.40\.29/i.test(acodec)) return 'HE-AAC'
+  if (/^mp4a|aac/i.test(acodec)) return 'AAC'
+  if (/vorbis/i.test(acodec)) return 'Vorbis'
+  if (/mp3/i.test(acodec)) return 'MP3'
+  return acodec
+}
+
+/**
+ * Walk the chain a download depends on and say what the file will be.
+ *
+ * Every link can fail silently: the tools, the JS engine, the sign-in, the
+ * token server — and each failure used to mean a smaller file, not an error.
+ * The last step is not a prediction. It asks yt-dlp to choose a stream with
+ * the exact arguments a download would use, and `--simulate` stops it there,
+ * so the answer is whatever the next download will genuinely get.
+ */
+export async function checkDownloadQuality(options: { format: AudioFormat; premiumAudio: boolean; url?: string | null }): Promise<QualityCheckResult> {
+  const steps: QualityCheckStep[] = []
+  const url = options.url && /(?:youtube\.com|youtu\.be)\//i.test(options.url) ? options.url : QUALITY_TEST_URL
+  const ytDlp = resolveTool('yt-dlp'), ffmpeg = resolveTool('ffmpeg')
+  const toolsOk = Boolean(ytDlp && ffmpeg)
+  steps.push({ id: 'tools', label: 'yt-dlp and ffmpeg', state: toolsOk ? 'ok' : 'fail', detail: toolsOk ? 'Both found.' : `Missing: ${[ytDlp ? '' : 'yt-dlp', ffmpeg ? '' : 'ffmpeg'].filter(Boolean).join(' and ')}.` })
+  if (!ytDlp || !toolsOk) return { steps, expected: null, headline: 'Nothing can download until the tools are found.', testedUrl: url }
+
+  const runtime = jsRuntimeStatus()
+  steps.push({ id: 'engine', label: 'JavaScript engine', state: runtime.available ? 'ok' : 'fail', detail: runtime.available ? `${runtime.kind} — solves YouTube's player challenges.` : 'None found. Install Node.js; signed-in downloads fail without one.' })
+
+  let signedIn = false
+  if (!hasCookies()) {
+    steps.push({ id: 'signin', label: 'YouTube sign-in', state: options.premiumAudio ? 'fail' : 'warn', detail: 'No sign-in set. Choose Firefox under "Use cookies from", with YouTube signed in there.' })
+  } else {
+    // Reading the first entry of the watch history only succeeds when YouTube
+    // itself says the session is logged in; nothing from it is kept or shown.
+    const probe = await run(ytDlp, [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(true), '--flat-playlist', '--playlist-end', '1', '--print', 'id', ':ythistory'], { timeoutMs: 90_000, env: ytDlpEnv() })
+    signedIn = probe.code === 0
+    const via = cookieFile ? 'the cookies.txt file' : `${cookieSource[0].toUpperCase()}${cookieSource.slice(1)}`
+    steps.push({
+      id: 'signin', label: 'YouTube sign-in', state: signedIn ? 'ok' : 'fail',
+      detail: signedIn ? `Signed in through ${via}.` : cookieFile
+        ? 'The cookies.txt file is no longer signed in. Exported cookies go stale within hours; switch to Firefox for a session that stays live.'
+        : `${via} is not signed in to YouTube. Open YouTube there and sign in, then run this again.`,
+    })
+  }
+
+  let tokenReady = false
+  if (!options.premiumAudio) {
+    steps.push({ id: 'token', label: 'Premium token server', state: 'skip', detail: '256 kbps audio is switched off.' })
+  } else {
+    const pot = await startPotProvider()
+    tokenReady = pot.running && pot.plugin
+    steps.push({
+      id: 'token', label: 'Premium token server', state: tokenReady ? 'ok' : 'fail',
+      detail: tokenReady ? 'Running.' : !pot.folder ? 'The token provider is not installed.' : !pot.plugin ? 'The yt-dlp plugin for the token provider is missing.' : 'Found, but it would not start. It needs Node.js on PATH.',
+    })
+  }
+
+  const pick = async (premium: boolean) => {
+    const args = [...ytDlpCommon, ...jsRuntimeArgs(), ...authArgs(true), '--no-playlist', '--simulate', '-f', audioFormatSelector(options.format, premium, true), '--print', '%(format_id)s|%(acodec)s|%(abr)s|%(asr)s']
+    if (premium) args.push('--extractor-args', 'youtube:player_client=web_music')
+    args.push(premium ? asMusicUrl(url) : url)
+    const result = await run(ytDlp, args, { timeoutMs: 120_000, env: ytDlpEnv() })
+    const line = result.stdout.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean).pop()
+    if (result.code !== 0 || !line) return { error: cleanYtDlpError(result.stderr) || 'yt-dlp found no audio stream.' }
+    const [formatId = "?", acodec, abr, asr] = line.split("|")
+    const kbps = Number(abr) ? Math.round(Number(abr)) : null
+    return { formatId, codec: codecName(acodec), kbps, sampleRate: Number(asr) || null, premium: premium && (kbps ?? 0) > 200 }
+  }
+  const tryPremium = options.premiumAudio && tokenReady && hasCookies()
+  let chosen = tryPremium ? await pick(true) : null
+  if (!chosen || 'error' in chosen) chosen = await pick(false)
+  if ('error' in chosen) {
+    const reason = chosen.error ?? 'yt-dlp found no audio stream.'
+    steps.push({ id: 'stream', label: 'Test download', state: 'fail', detail: reason })
+    return { steps, expected: null, headline: `Downloads would fail right now: ${reason}`, testedUrl: url }
+  }
+  const converted = options.format === 'mp3' || options.format === 'flac' ? options.format.toUpperCase() : null
+  const expected = { ...chosen, converted }
+  const described = `${chosen.codec} ${chosen.kbps ?? '?'} kbps${chosen.sampleRate ? `, ${(chosen.sampleRate / 1000).toFixed(1)} kHz` : ''}`
+  steps.push({ id: 'stream', label: 'Test download', state: chosen.premium || !options.premiumAudio ? 'ok' : 'warn', detail: `YouTube would send stream ${chosen.formatId}: ${described}.` })
+
+  let headline: string
+  if (converted) headline = `Downloads take the ${described} stream and re-encode it to ${converted}, which costs a little quality. Pick M4A or Opus to keep it untouched.`
+  else if (chosen.premium) headline = `Downloads will be ${described} — YouTube Music's Premium stream, saved untouched.`
+  else if (options.premiumAudio) {
+    const blocker = steps.find(step => step.state === 'fail')
+    headline = `Downloads will be ${described}. Premium is not coming through${blocker ? `: ${blocker.label.toLowerCase()} — ${blocker.detail}` : ' for this track.'}`
+  } else headline = `Downloads will be ${described}, the standard stream. Switch on 256 kbps audio for twice that.`
+  return { steps, expected, headline, testedUrl: url }
 }
 
 /** `yt-dlp -U`: keeps YouTube extraction working as the site changes. */

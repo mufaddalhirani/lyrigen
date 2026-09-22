@@ -19,9 +19,9 @@ import { createRateLimiter, mapLimited, matchScore, cleanTitle } from './catalog
 import { createPlaylist, createStateStore, emptyQueue } from './state-store'
 import { configureGraphics, reportGraphicsStatus } from './graphics'
 import { getThumbnailUrl, pruneThumbnailCache } from './artwork-cache'
-import { Downloader, songIdentity, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
+import { Downloader, songIdentity, type UpgradeCandidate, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
-import { inspectCookiesFile, isPreviewing, potStatus, previewUrl, setPotProviderFolder, setToolsFolder, startPotProvider, stopPotProvider, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
+import { checkDownloadQuality, inspectCookiesFile, isPreviewing, potStatus, previewUrl, setPotProviderFolder, setToolsFolder, startPotProvider, stopPotProvider, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
 import { setBetterLyricsApiKey } from './lyrics-sources'
 import { PATH_PRESETS, primaryArtist } from './song-naming'
 
@@ -103,6 +103,11 @@ type LibraryTrack = {
   fileSize: number
   format: string
   lossless: boolean | null
+  /** Measured from the file, for quality badges. Bitrate in kbps. */
+  kbps?: number | null
+  sampleRate?: number | null
+  bitDepth?: number | null
+  codec?: string | null
   genre: string | null
   isDuplicate: boolean
   possibleDuplicate?: boolean
@@ -278,7 +283,12 @@ async function extractIndexMetadata(filePath: string) {
 async function readIndexMetadata(filePath: string) {
   try {
     const mm = await import('music-metadata')
-    const metadata = await mm.parseFile(filePath)
+    // music-metadata gives Ogg files no duration and no bitrate unless asked to
+    // scan for them — measured on every Opus file here — so for about half of
+    // a YouTube library the list showed no length, listening time came up
+    // short, and quality badges had nothing to go on. The scan costs ~40 ms on
+    // an Opus file; other formats carry the length in their headers.
+    const metadata = await mm.parseFile(filePath, { duration: /\.(opus|ogg|oga)$/i.test(filePath) })
     const overlay = await readOverlay(filePath)
     let embeddedCoverPath: string | null = overlay.coverPath || null
     const picture = metadata.common.picture?.[0]
@@ -302,12 +312,17 @@ async function readIndexMetadata(filePath: string) {
       genre: overlay.genre || metadata.common.genre?.[0] || null,
       duration: metadata.format.duration || null,
       lossless: metadata.format.lossless ?? null,
+      // Kept for the quality badges; before this the scan read them and threw them away.
+      bitrate: metadata.format.bitrate ? Math.round(metadata.format.bitrate) : null,
+      sampleRate: metadata.format.sampleRate ?? null,
+      bitDepth: metadata.format.bitsPerSample ?? null,
+      codec: metadata.format.codec ?? null,
       trackNumber: Number(overlay.trackNumber) || metadata.common.track.no || null,
       discNumber: Number(overlay.discNumber) || metadata.common.disk.no || null,
       embeddedCoverPath,
     }
   } catch {
-    return { title: null, artist: null, album: null, albumArtist: null, year: null, genre: null, duration: null, lossless: null, trackNumber: null, discNumber: null, embeddedCoverPath: null }
+    return { title: null, artist: null, album: null, albumArtist: null, year: null, genre: null, duration: null, lossless: null, bitrate: null, sampleRate: null, bitDepth: null, codec: null, trackNumber: null, discNumber: null, embeddedCoverPath: null }
   }
 }
 
@@ -373,6 +388,12 @@ async function scanLibrary(rootPath: string | null): Promise<LibraryScanResult> 
         fileSize,
         format: path.extname(audioPath).slice(1).toLocaleUpperCase(),
         lossless: indexed.lossless ?? (['.flac', '.wav', '.aiff', '.aif', '.alac'].includes(path.extname(audioPath).toLocaleLowerCase()) ? true : null),
+        // An index cached before this field existed has no bitrate; size over
+        // length is within a few kbps of it, cover art included.
+        kbps: (indexed as { bitrate?: number | null }).bitrate ? Math.round((indexed as { bitrate: number }).bitrate / 1000) : fileSize && indexed.duration ? Math.round(fileSize * 8 / indexed.duration / 1000) : null,
+        sampleRate: (indexed as { sampleRate?: number | null }).sampleRate ?? null,
+        bitDepth: (indexed as { bitDepth?: number | null }).bitDepth ?? null,
+        codec: (indexed as { codec?: string | null }).codec ?? null,
         genre: indexed.genre,
         isDuplicate: false,
       }
@@ -769,6 +790,12 @@ function getDownloader() {
 
 ipcMain.handle('tools-status', () => toolsStatus())
 ipcMain.handle('pot-status', () => potStatus())
+ipcMain.handle('check-download-quality', (_event, url?: string | null) => {
+  const settings = getDownloader().settings
+  return checkDownloadQuality({ format: settings.format, premiumAudio: settings.premiumAudio, url: url ?? null })
+})
+ipcMain.handle('scan-library-quality', () => getDownloader().scanLibraryQuality((done, total) => win?.webContents.send('library-quality-progress', { done, total })))
+ipcMain.handle('enqueue-upgrades', (_event, candidates: UpgradeCandidate[]) => getDownloader().enqueueUpgrades(candidates))
 // Only ever reached because Premium audio was switched on in settings, which is
 // the consent for Lyrigen to run a service it did not install.
 ipcMain.handle('start-pot-provider', () => startPotProvider())
@@ -1365,9 +1392,46 @@ ipcMain.handle('read-file', async (_event, filePath: string) => {
 ipcMain.handle('get-media-url', (_event, filePath: string) => pathToFileURL(filePath).toString())
 ipcMain.handle('get-artwork-url', (_event, filePath: string, size: number) => getThumbnailUrl(filePath, size))
 
+/**
+ * The colour of a cover, for Spotify-style gradients behind the music.
+ *
+ * Read here rather than in the renderer: a canvas cannot read pixels from a
+ * file:// image without being tainted, and this way needs no library. The
+ * cover is shrunk to 24×24 and averaged with saturated pixels weighted up, so a
+ * black sleeve with a red logo comes out red rather than grey; near-black and
+ * near-white are skipped as background.
+ */
+const artworkColors = new Map<string, string | null>()
+ipcMain.handle('get-artwork-color', (_event, filePath: string) => {
+  if (!filePath) return null
+  if (artworkColors.has(filePath)) return artworkColors.get(filePath) ?? null
+  let color: string | null = null
+  try {
+    const image = nativeImage.createFromPath(filePath)
+    if (!image.isEmpty()) {
+      const bitmap = image.resize({ width: 24, height: 24, quality: 'good' }).toBitmap()
+      let red = 0, green = 0, blue = 0, weight = 0
+      for (let index = 0; index + 3 < bitmap.length; index += 4) {
+        // toBitmap is BGRA.
+        const b = bitmap[index], g = bitmap[index + 1], r = bitmap[index + 2]
+        const max = Math.max(r, g, b), min = Math.min(r, g, b)
+        const lightness = (max + min) / 510
+        if (lightness < 0.07 || lightness > 0.95) continue
+        const saturation = max === 0 ? 0 : (max - min) / max
+        const w = 0.12 + saturation * saturation * 3
+        red += r * w; green += g * w; blue += b * w; weight += w
+      }
+      if (weight > 0) color = `#${[red, green, blue].map(value => Math.round(value / weight).toString(16).padStart(2, '0')).join('')}`
+    }
+  } catch { color = null }
+  artworkColors.set(filePath, color)
+  return color
+})
+
 async function extractAudioMetadata(filePath: string) {
   const mm = await import('music-metadata')
-  const metadata = await mm.parseFile(filePath)
+  // Ogg carries no length in its header; see readIndexMetadata.
+  const metadata = await mm.parseFile(filePath, { duration: /\.(opus|ogg|oga)$/i.test(filePath) })
   const overlay = await readOverlay(filePath)
   const picture = metadata.common.picture?.[0]
   const cover = overlay.coverPath ? pathToFileURL(overlay.coverPath).toString() : picture ? `data:${picture.format};base64,${Buffer.from(picture.data).toString('base64')}` : null
