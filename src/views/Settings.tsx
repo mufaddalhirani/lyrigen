@@ -43,7 +43,7 @@ const GROUPS: Array<{ title: string; kicker: string; toggles: Toggle[] }> = [
     kicker: 'LYRICS',
     title: 'Fetching',
     toggles: [
-      { key: 'autoFetchLyrics', title: 'Look up lyrics automatically', detail: 'When a song has no lyric file, check Better Lyrics, Unison, AMLL and LRCLIB. Results are saved beside the song, so each track is only ever fetched once.' },
+      { key: 'autoFetchLyrics', title: 'Look up lyrics automatically', detail: 'When a song has no lyric file, check Better Lyrics, BiniLyrics, Unison, AMLL and LRCLIB. Results are saved beside the song, so each track is only ever fetched once.' },
     ],
   },
   {

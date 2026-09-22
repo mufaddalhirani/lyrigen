@@ -11,6 +11,9 @@ import { normalizeKey, primaryArtist } from './song-naming'
  *    no fuzzy title search needed. Search results carry vote counts and a
  *    confidence level, and richsync TTML entries are real word-level timing.
  *    Read endpoints need no key. Attribution: "Lyrics from Unison".
+ *  - **BiniLyrics** (lyrics.binimum.org) — community corpus of Apple-format
+ *    word- and syllable-timed TTML, searchable by track + artist or ISRC,
+ *    no key required.
  *  - **AMLL TTML DB** (api.amll.dev) — community mirror of Apple Music
  *    word-synced TTML.
  *  - **LRCLIB** (lrclib.net) — line-synced LRC + plain text.
@@ -32,7 +35,7 @@ export type LyricFormat = 'ttml' | 'lrc' | 'plain'
  * highlight track the voice instead of jumping a line at a time.
  */
 export type LyricSync = 'syllable' | 'richsync' | 'linesync' | 'plain'
-export type LyricSourceId = 'betterlyrics' | 'unison' | 'amll' | 'lrclib'
+export type LyricSourceId = 'betterlyrics' | 'binilyrics' | 'unison' | 'amll' | 'lrclib'
 
 export interface LyricCandidate {
   /** Stable, source-prefixed id, e.g. `unison:1133`. */
@@ -198,6 +201,77 @@ export async function betterLyricsSearch(request: LyricLookupRequest): Promise<L
     content: ttml,
     match: localMatch(request, ttmlTitle(ttml) || request.trackName, request.artistName || '', duration),
   }]
+}
+
+// ---------------------------------------------------------------------------
+// BiniLyrics
+//
+// A community-built corpus of Apple-format TTML, word- and syllable-timed,
+// with a public search API that needs no key (https://lyrics.binimum.org).
+// A search returns metadata plus a direct link to the TTML file, so ranking
+// happens before anything large is downloaded. Strong on Western catalogue;
+// sparse for South Asian music, where the local AI sync fills the gap.
+// ---------------------------------------------------------------------------
+
+export const BINILYRICS_BASE_URL = 'https://lyrics-api.binimum.org'
+export const BINILYRICS_ATTRIBUTION = 'Lyrics from BiniLyrics (lyrics.binimum.org)'
+// No published limit; a volunteer service is owed a gentle pace regardless.
+const waitForBiniLyrics = createRateLimiter(300)
+
+interface BiniLyricsEntry {
+  id: string
+  track_name?: string
+  artist_name?: string
+  album_name?: string | null
+  duration?: number | null
+  isrc?: string | null
+  timing_type?: string | null
+  lyricsUrl?: string | null
+}
+
+const BINI_TIMING: Record<string, LyricSync> = { syllable: 'syllable', word: 'richsync', line: 'linesync' }
+
+export async function biniLyricsSearch(request: LyricLookupRequest): Promise<LyricCandidate[]> {
+  if (!request.trackName?.trim()) return []
+  await waitForBiniLyrics()
+  const params = new URLSearchParams({ track: request.trackName })
+  if (request.artistName) params.set('artist', request.artistName)
+  const response = await fetch(`${BINILYRICS_BASE_URL}/?${params}`, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) })
+  // A miss is a 404 with {"error":"Not found"} — an answer, not a failure.
+  if (response.status === 404) return []
+  if (!response.ok) throw new Error(`BiniLyrics returned ${response.status}`)
+  const body = await response.json() as { source?: string; results?: BiniLyricsEntry[]; error?: string }
+  if (!Array.isArray(body.results)) return []
+  const exact = /EXACT/i.test(body.source ?? '')
+  return body.results.filter(entry => entry.lyricsUrl).map(entry => ({
+    id: `binilyrics:${entry.id}`,
+    source: 'binilyrics' as const,
+    sourceLabel: 'BiniLyrics',
+    // The TTML itself; fetchLyricCandidate reads it from here.
+    sourceUrl: entry.lyricsUrl ?? null,
+    song: entry.track_name || request.trackName,
+    artist: entry.artist_name || request.artistName || '',
+    album: entry.album_name ?? null,
+    duration: typeof entry.duration === 'number' ? entry.duration : null,
+    format: 'ttml' as const,
+    syncType: BINI_TIMING[(entry.timing_type ?? '').toLowerCase()] ?? 'richsync',
+    language: null,
+    confidence: exact ? 'high' as const : 'medium' as const,
+    votes: null,
+    score: null,
+    submitter: null,
+    videoId: null,
+    match: localMatch(request, entry.track_name || request.trackName, entry.artist_name || '', typeof entry.duration === 'number' ? entry.duration : null),
+  }))
+}
+
+async function biniLyricsGet(url: string) {
+  // Only ever follow links onto BiniLyrics' own storage.
+  if (!/^https:\/\/lyrics-storage\.binimum\.org\//i.test(url)) return null
+  const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15_000) })
+  if (!response.ok) return null
+  const ttml = await response.text()
+  return ttml.includes('<tt') ? ttml : null
 }
 
 // ---------------------------------------------------------------------------
@@ -450,7 +524,7 @@ const SYNC_WEIGHT: Record<LyricSync, number> = { syllable: 0.4, richsync: 0.3, l
 const SYNC_TIER: Record<LyricSync, number> = { syllable: 3, richsync: 2, linesync: 1, plain: 0 }
 
 /** Tie-break between equally-timed candidates: the better-curated corpus first. */
-const SOURCE_TIER: Record<LyricSourceId, number> = { betterlyrics: 3, unison: 2, amll: 2, lrclib: 1 }
+const SOURCE_TIER: Record<LyricSourceId, number> = { betterlyrics: 3, binilyrics: 3, unison: 2, amll: 2, lrclib: 1 }
 const CONFIDENCE_WEIGHT = { high: 0.2, medium: 0.1, low: 0 }
 
 /** Sort key: match quality first, then richer sync, then community confidence. */
@@ -522,9 +596,10 @@ export async function searchLyricCandidates(request: LyricLookupRequest): Promis
 }
 
 async function runLyricSources(request: LyricLookupRequest): Promise<LyricCandidate[]> {
-  const sources = request.sources ?? ['betterlyrics', 'unison', 'amll', 'lrclib']
+  const sources = request.sources ?? ['betterlyrics', 'binilyrics', 'unison', 'amll', 'lrclib']
   const tasks: Array<Promise<LyricCandidate[]>> = []
   if (sources.includes('betterlyrics')) tasks.push(betterLyricsSearch(request).catch(error => { console.warn('Better Lyrics search failed', error); return [] }))
+  if (sources.includes('binilyrics')) tasks.push(biniLyricsSearch(request).catch(error => { console.warn('BiniLyrics search failed', error); return [] }))
   if (sources.includes('unison')) {
     tasks.push((async () => {
       const found: LyricCandidate[] = []
@@ -552,6 +627,7 @@ export async function fetchLyricCandidate(candidate: LyricCandidate): Promise<{ 
   const id = Number(rawId)
   if (source === 'unison') { const result = await unisonGet(id); return result ? { content: result.content, format: result.format } : null }
   if (source === 'amll') { const ttml = await amllGet(id); return ttml ? { content: ttml, format: 'ttml' } : null }
+  if (source === 'binilyrics' && candidate.sourceUrl) { const ttml = await biniLyricsGet(candidate.sourceUrl); return ttml ? { content: ttml, format: 'ttml' } : null }
   return null
 }
 
@@ -570,7 +646,7 @@ function toResult(candidate: LyricCandidate, content: string, format: LyricForma
 export async function findBestLyrics(request: LyricLookupRequest): Promise<LyricLookupResult> {
   try {
     const candidates = await searchLyricCandidates(request)
-    if (!candidates.length) return { found: false, message: 'No lyrics found on Better Lyrics, Unison, AMLL TTML DB or LRCLIB.' }
+    if (!candidates.length) return { found: false, message: 'No lyrics found on Better Lyrics, BiniLyrics, Unison, AMLL TTML DB or LRCLIB.' }
     const plausible = candidates.filter(candidate => candidate.match >= 0.5 || (candidate.videoId && candidate.videoId === request.videoId))
     // One comparator, used both to walk the list and to pick the winner, so the
     // match gate cannot be bypassed by the final sort.

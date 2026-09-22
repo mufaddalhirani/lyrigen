@@ -253,7 +253,7 @@ type AudioQuality = 'best' | 'high' | 'medium'
 type DownloadJobStatus = 'queued' | 'inspecting' | 'downloading' | 'converting' | 'tagging' | 'lyrics' | 'organizing' | 'done' | 'error' | 'cancelled' | 'paused' | 'waiting'
 type LyricFormat = 'ttml' | 'lrc' | 'plain'
 type LyricSync = 'syllable' | 'richsync' | 'linesync' | 'plain'
-type LyricSourceId = 'betterlyrics' | 'unison' | 'amll' | 'lrclib'
+type LyricSourceId = 'betterlyrics' | 'binilyrics' | 'unison' | 'amll' | 'lrclib'
 
 interface SongMetadata {
   artist: string | null

@@ -32,7 +32,7 @@ interface Props {
   onSaved?: (path: string) => void
 }
 
-const SOURCES: Array<{ id: LyricSourceId; label: string }> = [{ id: 'betterlyrics', label: 'Better Lyrics' }, { id: 'unison', label: 'Unison' }, { id: 'amll', label: 'AMLL' }, { id: 'lrclib', label: 'LRCLIB' }]
+const SOURCES: Array<{ id: LyricSourceId; label: string }> = [{ id: 'betterlyrics', label: 'Better Lyrics' }, { id: 'binilyrics', label: 'BiniLyrics' }, { id: 'unison', label: 'Unison' }, { id: 'amll', label: 'AMLL' }, { id: 'lrclib', label: 'LRCLIB' }]
 const SYNC_LABEL: Record<LyricSync, string> = { syllable: 'Syllable-synced', richsync: 'Word-synced', linesync: 'Line-synced', plain: 'Plain text' }
 
 /** Guess a YouTube id from a yt-dlp style file name so Unison can answer exactly. */
@@ -49,7 +49,7 @@ export function LyricsFinder({ track, onClose, onApply, onSaved }: Props) {
   const [artist, setArtist] = useState(track.artist || '')
   const [album, setAlbum] = useState(track.album || '')
   const [useDuration, setUseDuration] = useState(true)
-  const [sources, setSources] = useState<LyricSourceId[]>(['betterlyrics', 'unison', 'amll', 'lrclib'])
+  const [sources, setSources] = useState<LyricSourceId[]>(['betterlyrics', 'binilyrics', 'unison', 'amll', 'lrclib'])
   const [busy, setBusy] = useState(false)
   const [candidates, setCandidates] = useState<LyricCandidate[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -150,7 +150,7 @@ export function LyricsFinder({ track, onClose, onApply, onSaved }: Props) {
               <div className="side">{candidate.votes !== null && <><b>{candidate.votes}</b>votes</>}<span>{Math.round(candidate.match * 100)}% match</span></div>
             </button>
           })}
-          {!candidates.length && <div className="finder-empty">{busy ? 'Searching Better Lyrics, Unison, AMLL and LRCLIB…' : message || 'Search to see candidates.'}</div>}
+          {!candidates.length && <div className="finder-empty">{busy ? 'Searching Better Lyrics, BiniLyrics, Unison, AMLL and LRCLIB…' : message || 'Search to see candidates.'}</div>}
         </div>
         <div className="finder-preview">
           <div className="finder-preview-head">
