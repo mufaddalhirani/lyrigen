@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { type LyricLine } from '@applemusic-like-lyrics/lyric'
+import { BratLyrics } from './BratLyrics'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
 import { MaterialIcon } from './common/MaterialIcon'
@@ -26,7 +27,7 @@ interface PlayerProps extends LibraryTrack {
 }
 
 type RepeatMode = 'off' | 'all' | 'one'
-type VisualMode = 'balanced' | 'lyrics' | 'cover' | 'vinyl' | 'visualizer'
+type VisualMode = 'balanced' | 'lyrics' | 'cover' | 'vinyl' | 'visualizer' | 'brat'
 
 const VISUAL_MODE_OPTIONS: Array<{ value: VisualMode; label: string; description: string }> = [
   { value: 'balanced', label: 'Balanced', description: 'Cover, details, and lyrics together' },
@@ -34,6 +35,7 @@ const VISUAL_MODE_OPTIONS: Array<{ value: VisualMode; label: string; description
   { value: 'cover', label: 'Cover only', description: 'Large album artwork and details' },
   { value: 'vinyl', label: 'Spinning vinyl', description: 'Album art as a gentle record' },
   { value: 'visualizer', label: 'Reactive visualizer', description: 'Lightweight bars that follow the music' },
+  { value: 'brat', label: 'brat', description: 'Lime green; each word flies in from alternate sides as it is sung' },
 ]
 
 const VISUALIZER_BARS = Array.from({ length: 18 }, (_, index) => index)
@@ -592,6 +594,7 @@ export function Player({
           <div className="lyrics-viewport">
             {lyricLines.length > 0 ? (
               timing === 'unsynced' ? <div className="plain-lyrics">{lyricLines.map((line, index) => <p key={index}>{line.words.map(word => word.word).join('')}</p>)}</div> :
+              visualMode === 'brat' ? <BratLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} reducedMotion={reducedMotion} title={displayTitle} onSeek={seek} /> :
               <SyncedLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} visible={visualMode !== 'cover' && visualMode !== 'vinyl'} reducedMotion={reducedMotion} onSeek={seek} />
             ) : (
               <div className="lyrics-empty"><div className="empty-quote">“</div><h3>{lookupBusy ? 'Searching for lyrics…' : 'No synced lyrics yet'}</h3><p>Lyrigen checks matching local files first, then Unison (exact match for YouTube downloads), the AMLL TTML DB and LRCLIB.</p><button className="inline-glass-button" disabled={lookupBusy} onClick={() => void findOnlineLyrics()}>{lookupBusy ? 'Searching…' : 'Try online again'}</button><button className="inline-glass-button" onClick={() => setFinderOpen(true)}>Browse lyrics…</button></div>

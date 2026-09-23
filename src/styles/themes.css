@@ -167,39 +167,71 @@ html[data-lyric-motion="none"] .synced-lyrics * {
   animation: none !important;
 }
 
-/* ---------- brat ---------- */
+/* ---------- brat visual mode (BratLyrics.tsx) ---------- */
 /*
- * The brat album cover: flat lime (#8ace00), black Arial Narrow, lowercase,
- * stretched tall and softened with a slight blur, as if printed too small and
- * scaled up. The app keeps its dark chrome with a lime accent; the player is
- * where the full look lives. The blur is on the whole stage, once — a
- * per-line filter would stack through the renderer's nested elements.
+ * Flat lime, as on the album cover and the Brat Generator; black type. The
+ * cover and details stay on the left, the lyrics land in the column on the
+ * right. Ambient backgrounds are switched off: brat is one flat colour.
  */
-html[data-theme="brat"] {
-  --accent: #8ace00;
-  --accent-strong: #9be000;
-  --brat: #8ace00;
+.player-shell.visual-mode-brat { --brat: #8ace00; --accent: #8ace00; --accent-strong: #8ace00; background: var(--brat) !important; color: #000; }
+/* Every grey and accent-coloured label in the player, turned black. */
+.visual-mode-brat .track-details :is(h1, h2, p),
+.visual-mode-brat .lyrics-heading :is(span, p),
+.visual-mode-brat .glass-icon-button,
+.visual-mode-brat .quality-badge { color: #000 !important; }
+.visual-mode-brat .quality-badge { border-color: #000 !important; background: transparent !important; }
+.visual-mode-brat .glass-icon-button { border-color: rgba(0, 0, 0, .3); background: rgba(0, 0, 0, .06); }
+.visual-mode-brat .background-veil,
+.visual-mode-brat .cover-bloom,
+.visual-mode-brat canvas { display: none !important; }
+.visual-mode-brat :where(h1, h2, h3, p, span, small, strong, label, .now-playing-label) { color: #000; }
+.visual-mode-brat .playing-dot { background: #000 !important; }
+.visual-mode-brat .lyrics-column { background: transparent !important; border-color: transparent !important; box-shadow: none !important; backdrop-filter: none !important; }
+.visual-mode-brat .lyrics-viewport { -webkit-mask-image: none !important; mask-image: none !important; overflow: hidden; }
+.visual-mode-brat .quality-chip, .visual-mode-brat .source-chip, .visual-mode-brat .offset-chip { border-color: rgba(0, 0, 0, .35); }
+
+.brat-lyrics {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .4em;
+  height: 100%;
+  overflow: hidden;
+  padding: 0 4px;
+  color: #000;
+  font-family: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif;
+  font-weight: 400;
+  /* The generator's softness: text a little out of focus, as if scaled up. */
+  filter: blur(1.4px);
 }
-html[data-theme="brat"] .accent-button { background: var(--brat); color: #000; box-shadow: none; }
-html[data-theme="brat"] .player-shell { background: var(--brat) !important; color: #000; }
-html[data-theme="brat"] .player-shell .background-veil,
-html[data-theme="brat"] .player-shell .cover-bloom,
-html[data-theme="brat"] .player-shell canvas { display: none !important; }
-html[data-theme="brat"] .player-shell :where(h1, h2, h3, p, span, small, strong, button) { color: #000; }
-html[data-theme="brat"] .lyrics-column { background: transparent !important; border-color: transparent !important; box-shadow: none !important; backdrop-filter: none !important; }
-html[data-theme="brat"] .synced-lyrics {
-  --amll-lp-color: #000;
-  --amll-lp-hover-bg-color: transparent;
-  font-family: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif !important;
-  text-transform: lowercase;
-  letter-spacing: -.02em;
-  filter: blur(.7px);
+.brat-previous {
+  min-height: 1.2em;
+  margin: 0;
+  font-size: clamp(16px, 1.6vw, 24px);
+  line-height: 1.1;
+  opacity: .38;
+  cursor: pointer;
+  text-align: left;
 }
-html[data-theme="brat"] .synced-lyrics * { font-family: inherit !important; text-shadow: none !important; font-weight: 400 !important; }
-/* Arial Narrow ships with Office, not Windows. Squashing the stage gives the
-   same narrow letters with any Arial; it is made wider by the same factor so
-   lines still wrap at the panel's edge. */
-html[data-theme="brat"] .synced-lyrics-stage { width: 122% !important; transform: scaleX(.82); transform-origin: left center; }
-html[data-theme="brat"] .now-playing-label { color: #000; }
-html[data-theme="brat"] .playing-dot { background: #000 !important; }
-html[data-theme="brat"] .synced-lyrics [class*="lyricMainLine"] { transform-origin: left center; }
+.brat-line {
+  margin: 0;
+  line-height: .98;
+  letter-spacing: -.01em;
+  text-align: justify;
+  text-align-last: left;
+  overflow-wrap: anywhere;
+  transition: opacity .6s ease;
+}
+.brat-line.resting { opacity: .35; }
+.brat-word { display: inline-block; visibility: hidden; }
+.brat-word.out {
+  visibility: visible;
+  animation: brat-fly .26s cubic-bezier(.16, .84, .3, 1) both;
+}
+.brat-word.settled, .brat-lyrics.still .brat-word.out { animation: none; }
+/* In from far off one edge, a hair past the mark, then snap back onto it. */
+@keyframes brat-fly {
+  0% { transform: translateX(calc(var(--from) * 70vw)); }
+  78% { transform: translateX(calc(var(--from) * -.06em)); }
+  100% { transform: none; }
+}
