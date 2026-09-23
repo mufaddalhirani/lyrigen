@@ -399,3 +399,30 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 /* Clearing the library search: one click, or Esc, instead of deleting it by hand. */
 .search-clear{display:grid;place-items:center;flex:none;width:22px;height:22px;border-radius:6px;background:transparent;color:#a39bab}
 .search-clear:hover{background:rgba(255,255,255,.1);color:#fff}
+
+/* ---------- Responsive layout ----------
+   The layout was sized for one window: fixed 244 px sidebar, content capped at
+   1260 px, a toolbar that could only grow sideways. On a 1024 px window the
+   genre menu (as wide as the longest genre name) pushed the sort menu and the
+   grid switch off the screen; on a short window the lower half of the sidebar
+   was unreachable; on a 1440p screen the content sat in a narrow strip. */
+.nocturne-app{min-width:0}
+.workspace{grid-template-columns:clamp(196px,16vw,272px) minmax(0,1fr)}
+.sidebar{overflow-x:hidden;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.14) transparent}
+.sidebar-bottom{padding-top:14px}
+.main-topline,.home-view,.collection-view,.card-grid-page,.smart-page,.discover-page,.sound-page,.converter-wrap{max-width:min(100%,1800px)}
+.main-topline{flex-wrap:wrap;row-gap:14px}
+.main-topline>div:first-child{min-width:0}
+.collection-toolbar{flex-wrap:wrap;row-gap:10px;min-width:0}
+.segmented-tabs{flex-wrap:wrap;max-width:100%}
+.collection-controls{flex-wrap:wrap;justify-content:flex-end;min-width:0;margin-left:auto}
+.collection-controls select{width:auto;max-width:min(220px,40vw);min-width:0;text-overflow:ellipsis}
+.collection-controls button{display:grid;place-items:center;flex:none;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.045);color:var(--soft)}
+.collection-controls button:hover{background:rgba(255,255,255,.1);color:#fff}
+@media(min-width:1700px){.entity-grid,.track-grid,.smart-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}}
+@media(max-width:1100px){.workspace{grid-template-columns:184px minmax(0,1fr)}.sidebar{padding-inline:10px}.sidebar-heading h1{font-size:24px}.main-content{padding-inline:20px}}
+/* A long data-folder path made its grid column (and the page) wider than the window. */
+.settings-grid{grid-template-columns:repeat(auto-fit,minmax(min(330px,100%),1fr))}
+.settings-grid>*,.settings-card{min-width:0}
+.settings-facts{grid-template-columns:minmax(0,1fr)}.settings-facts div{min-width:0}.settings-facts dd{min-width:0}
+.search-field kbd{white-space:nowrap;flex:none}
