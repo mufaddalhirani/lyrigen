@@ -293,7 +293,51 @@ async function collectLibraryFiles(rootPath: string) {
 }
 
 const indexCache = new Map<string, { stamp: string; value: Awaited<ReturnType<typeof readIndexMetadata>> }>()
+
+/**
+ * The tag index and the last scan, kept on disk between launches.
+ *
+ * Without them every launch re-read the tags of every song (and re-cut every
+ * embedded cover) before showing the library — minutes for a few thousand
+ * files, with "Scanning library…" counting up each time. Now the last library
+ * appears at once, and the check that follows only reads tags from files whose
+ * size or date changed.
+ */
+const indexFile = () => path.join(app.getPath('userData'), 'library-index.json')
+const snapshotFile = () => path.join(app.getPath('userData'), 'library-snapshot.json')
+let indexLoaded = false
+function loadIndexCache() {
+  if (indexLoaded) return
+  indexLoaded = true
+  try {
+    const entries = JSON.parse(fs.readFileSync(indexFile(), 'utf8')) as Array<[string, { stamp: string; value: Awaited<ReturnType<typeof readIndexMetadata>> }]>
+    for (const [filePath, entry] of entries) if (!indexCache.has(filePath)) indexCache.set(filePath, entry)
+  } catch { /* first launch, or an unreadable file: it is rebuilt by the scan */ }
+}
+async function writeJsonAtomic(filePath: string, value: unknown) {
+  const temporary = `${filePath}.${process.pid}.tmp`
+  await fs.promises.writeFile(temporary, JSON.stringify(value), 'utf8')
+  await fs.promises.rename(temporary, filePath)
+}
+async function persistLibrary(result: LibraryScanResult, roots: string[]) {
+  try {
+    // Only files still in the library are worth remembering.
+    const present = new Set(result.items.map(item => item.audioPath))
+    for (const filePath of indexCache.keys()) if (!present.has(filePath)) indexCache.delete(filePath)
+    await writeJsonAtomic(indexFile(), [...indexCache])
+    await writeJsonAtomic(snapshotFile(), { version: 1, roots, result: { ...result, progress: undefined } })
+  } catch (error) { console.warn('Could not save the library index', error) }
+}
+function readSnapshot(roots: string[]): LibraryScanResult | null {
+  try {
+    const saved = JSON.parse(fs.readFileSync(snapshotFile(), 'utf8')) as { version: number; roots: string[]; result: LibraryScanResult }
+    if (saved.version !== 1 || saved.roots.length !== roots.length || saved.roots.some((root, index) => root !== roots[index])) return null
+    return saved.result
+  } catch { return null }
+}
+
 async function extractIndexMetadata(filePath: string) {
+  loadIndexCache()
   const stat = await fs.promises.stat(filePath)
   const overlay = await readOverlay(filePath)
   const stamp = `${stat.size}:${stat.mtimeMs}:${JSON.stringify(overlay)}`
@@ -457,7 +501,11 @@ let activeScan: Promise<LibraryScanResult> | null = null
 async function scanAllLibraries(rootPaths: string[]): Promise<LibraryScanResult> {
   if (activeScan) await activeScan
   activeScan = scanAllLibrariesImpl(rootPaths)
-  try { libraryCache = await activeScan; return libraryCache } finally { activeScan = null }
+  try {
+    libraryCache = await activeScan
+    if (!libraryCache.error || libraryCache.items.length) void persistLibrary(libraryCache, rootPaths)
+    return libraryCache
+  } finally { activeScan = null }
 }
 async function scanAllLibrariesImpl(rootPaths: string[]): Promise<LibraryScanResult> {
   const validRoots = rootPaths.filter(rootPath => rootPath && fs.existsSync(rootPath))
@@ -1017,7 +1065,16 @@ ipcMain.handle('get-library', () => {
   const roots = smokeLibraryRoot ? [smokeLibraryRoot] : readSavedLibraryRoots()
   const rootPath = roots[0] ?? null
   watchLibrary(rootPath)
-  return libraryCache && !activeScan ? { ...libraryCache, items: withStoredTrackState(libraryCache.items) } : activeScan || scanAllLibraries(roots)
+  if (libraryCache) return { ...libraryCache, items: withStoredTrackState(libraryCache.items) }
+  // First request of this launch: show the library as it was last time, right
+  // away, and check the folders for changes behind it.
+  const snapshot = !activeScan && readSnapshot(roots)
+  if (snapshot) {
+    libraryCache = snapshot
+    void scanAllLibraries(roots).then(result => win?.webContents.send('library-updated', { ...result, items: withStoredTrackState(result.items) })).catch(console.error)
+    return { ...snapshot, items: withStoredTrackState(snapshot.items) }
+  }
+  return activeScan || scanAllLibraries(roots)
 })
 ipcMain.handle('rescan-library', () => scanAllLibraries(smokeLibraryRoot ? [smokeLibraryRoot] : readSavedLibraryRoots()))
 
@@ -1036,7 +1093,8 @@ ipcMain.handle('remove-library-root', (_event, rootPath: string) => {
 
 async function currentLibraryItems() {
   const roots = smokeLibraryRoot ? [smokeLibraryRoot] : readSavedLibraryRoots()
-  const result = activeScan ? await activeScan : libraryCache || await scanAllLibraries(roots)
+  // The library already shown is the right answer while a background check runs.
+  const result = libraryCache ?? (activeScan ? await activeScan : await scanAllLibraries(roots))
   return withStoredTrackState(result.items)
 }
 

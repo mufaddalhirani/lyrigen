@@ -396,3 +396,6 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 /* With the fluid background the veil only has to keep text readable, not hide the picture. */
 .has-fluid .background-veil{background:linear-gradient(120deg,rgba(12,11,17,.62),rgba(12,11,17,.28))}
 .has-fluid .reactive-wave{display:none}
+/* Clearing the library search: one click, or Esc, instead of deleting it by hand. */
+.search-clear{display:grid;place-items:center;flex:none;width:22px;height:22px;border-radius:6px;background:transparent;color:#a39bab}
+.search-clear:hover{background:rgba(255,255,255,.1);color:#fff}

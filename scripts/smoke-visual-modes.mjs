@@ -10,7 +10,7 @@
 
 import { _electron as electron } from 'playwright'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,9 +29,14 @@ function mktemp() { return mkdtempSync(path.join(tmpdir(), 'lyrigen-smoke-')) }
 
 async function main() {
   const libraryRoot = makeLibrary()
+  // A throwaway profile: never the real one, whose library, settings and
+  // single-instance lock belong to the copy of Lyrigen you actually use.
+  const profile = mktemp()
+  writeFileSync(path.join(profile, 'lyrigen-state.json'), JSON.stringify({ schemaVersion: 3, libraryRoots: [libraryRoot], playlists: [], favorites: [], ratings: {}, playHistory: [], resumePositions: {}, queue: { currentTrackId: null, upcomingTrackIds: [], shuffle: false, repeat: 'off', autoplay: true }, settings: { visualMode: 'balanced' }, remoteCache: {}, migration: { importedLegacy: false, importedAt: null } }))
   const app = await electron.launch({
-    args: ['.', '--no-sandbox', `--library-root=${libraryRoot}`],
+    args: ['.', '--no-sandbox'],
     cwd: projectRoot,
+    env: { ...process.env, LYRIGEN_USER_DATA: profile },
   })
   try {
     const win = await app.firstWindow()
@@ -40,9 +45,8 @@ async function main() {
 
     await win.click('.nav[aria-label="Library"] button:nth-child(2)')
     await win.waitForTimeout(250)
-    await win.click('.segmented-tabs button:nth-child(2)') // "Songs" tab -> flat rows
-    await win.waitForTimeout(250)
-    if (!(await win.locator('[data-track-index="0"]').count())) throw new Error('No track row found - is ffmpeg on PATH?')
+    await win.locator('.segmented-tabs button', { hasText: 'Songs' }).first().click() // flat rows
+    await win.locator('[data-track-index="0"]').waitFor({ timeout: 20_000 }).catch(() => { throw new Error('No track row found - is ffmpeg on PATH?') })
     await win.click('[data-track-index="0"] .row-art-button')
     await win.waitForTimeout(1200)
     await win.click('[aria-label="Sound and lyrics settings"]')
@@ -54,6 +58,7 @@ async function main() {
       cover: { lyricsColumnVisible: false, artworkColumnVisible: true, hasVinylRim: false },
       vinyl: { lyricsColumnVisible: false, artworkColumnVisible: true, hasVinylRim: true },
       visualizer: { lyricsColumnVisible: true, artworkColumnVisible: true, visualizerVisible: true },
+      brat: { lyricsColumnVisible: true, artworkColumnVisible: true, bratBackground: true },
     }
 
     let failures = 0
@@ -65,6 +70,7 @@ async function main() {
         artworkColumnVisible: getComputedStyle(document.querySelector('.artwork-column')).display !== 'none',
         hasVinylRim: Boolean(document.querySelector('.vinyl-rim')),
         visualizerVisible: getComputedStyle(document.querySelector('.visualizer-stage')).display !== 'none',
+        bratBackground: getComputedStyle(document.querySelector('.player-shell')).backgroundColor === 'rgb(138, 206, 0)',
       }))
       const ok = Object.entries(expected).every(([key, value]) => actual[key] === value)
       console.log(`${ok ? 'PASS' : 'FAIL'} ${mode}`, actual)
