@@ -29,6 +29,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   planDuplicateCleanup: () => ipcRenderer.invoke('plan-duplicate-cleanup'),
   checkDownloadPaths: () => ipcRenderer.invoke('check-download-paths'),
   getArtworkColor: (filePath: string) => ipcRenderer.invoke('get-artwork-color', filePath),
+  lyricSyncEnvironment: (refresh?: boolean) => ipcRenderer.invoke('lyric-sync-environment', Boolean(refresh)),
+  startLyricSync: (request: unknown) => ipcRenderer.invoke('lyric-sync-start', request),
+  cancelLyricSync: () => ipcRenderer.invoke('lyric-sync-cancel'),
+  onLyricSyncEvent: (callback: (event: unknown) => void) => {
+    const listener = (_event: unknown, payload: unknown) => callback(payload)
+    ipcRenderer.on('lyric-sync-event', listener)
+    return () => { ipcRenderer.removeListener('lyric-sync-event', listener) }
+  },
   getPotStatus: () => ipcRenderer.invoke('pot-status'),
   checkDownloadQuality: (url?: string | null) => ipcRenderer.invoke('check-download-quality', url ?? null),
   scanLibraryQuality: () => ipcRenderer.invoke('scan-library-quality'),

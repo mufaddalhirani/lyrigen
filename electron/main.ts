@@ -22,6 +22,7 @@ import { getThumbnailUrl, pruneThumbnailCache } from './artwork-cache'
 import { Downloader, songIdentity, type UpgradeCandidate, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
 import { checkDownloadQuality, inspectCookiesFile, isPreviewing, potStatus, previewUrl, setPotProviderFolder, setToolsFolder, startPotProvider, stopPotProvider, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
+import { cancelLyricSync, lyricSyncEnvironment, runLyricSync, type LyricSyncRequest } from './lyric-sync'
 import { setBetterLyricsApiKey } from './lyrics-sources'
 import { PATH_PRESETS, primaryArtist } from './song-naming'
 
@@ -261,7 +262,9 @@ async function collectLibraryFiles(rootPath: string) {
           directories.push(fullPath)
         }
       } else if (entry.isFile()) {
-        files.push(fullPath)
+        // Lyrigen's own in-progress writes (tag rewrites, upgrades) are named
+        // `*.lyrigen-*`. A crash mid-write must not add a half file as a song.
+        if (!/\.lyrigen-/i.test(entry.name)) files.push(fullPath)
       }
     }
   }
@@ -757,6 +760,7 @@ app.on('will-quit', () => {
   if (libraryWatchTimer) clearTimeout(libraryWatchTimer)
   stopPreview()
   stopPotProvider()
+  cancelLyricSync()
   downloader?.dispose()
 })
 
@@ -883,6 +887,11 @@ ipcMain.handle('fetch-lyric-candidate', async (_event, candidate: LyricCandidate
   return { content, format: fetched.format, retimed }
 })
 /** Save chosen lyrics beside a song with the matching extension for the format. */
+// Local AI lyric sync (stable-ts + faster-whisper in a Python worker).
+ipcMain.handle('lyric-sync-environment', (_event, refresh?: boolean) => lyricSyncEnvironment(Boolean(refresh)))
+ipcMain.handle('lyric-sync-start', (_event, request: LyricSyncRequest) => runLyricSync(request, event => win?.webContents.send('lyric-sync-event', event)))
+ipcMain.handle('lyric-sync-cancel', () => cancelLyricSync())
+
 ipcMain.handle('save-lyric-file', async (_event, audioPath: string, content: string, format: 'ttml' | 'lrc' | 'plain', options?: { overwrite?: boolean; embed?: boolean }) => {
   try {
     if (!audioExtensions.has(path.extname(audioPath).toLocaleLowerCase()) || !fs.existsSync(audioPath)) return { saved: false, message: 'The audio file is unavailable.' }

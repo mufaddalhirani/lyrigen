@@ -286,6 +286,26 @@ interface LibraryQualityReport {
   unknownSource: number
   bands: { under96: number; to160: number; to200: number; over200: number }
 }
+interface LyricSyncEnvironment {
+  python: string | null
+  pythonVersion: string | null
+  packages: { stableTs: string | null; fasterWhisper: string | null }
+  gpus: number
+  cudaRuntime: boolean
+  ready: boolean
+  message: string
+}
+interface LyricSyncRequest { audioPath: string; model: string; language?: string | null; lyricsText?: string | null; lyricsLines?: Array<{ text: string; start: number; end: number | null }> | null; device?: 'auto' | 'cuda' | 'cpu' }
+interface LyricSyncEvent { event: 'status' | 'device' | 'progress'; stage?: string; message?: string; device?: string; compute?: string; note?: string; percent?: number }
+interface LyricSyncResult {
+  ok: boolean
+  message?: string
+  mode?: 'align-lines' | 'align' | 'transcribe'
+  language?: string
+  device?: string
+  seconds?: number
+  segments?: Array<{ text: string; start: number; end: number; words: Array<{ word: string; start: number; end: number }> }>
+}
 interface PotStatus { folder: string | null; plugin: boolean; running: boolean }
 interface JsRuntimeStatus { available: boolean; kind: 'deno' | 'node' | 'bun' | 'electron' | null; path: string | null }
 interface ToolsStatus { tools: ToolStatus[]; searchedFolders: string[]; ready: boolean; jsRuntime: JsRuntimeStatus }
@@ -459,6 +479,10 @@ interface ElectronAPI {
   planDuplicateCleanup: () => Promise<DuplicateGroup[]>
   checkDownloadPaths: () => Promise<Array<{ kind: 'destination' | 'library' | 'cookies'; path: string }>>
   getArtworkColor: (filePath: string) => Promise<string | null>
+  lyricSyncEnvironment: (refresh?: boolean) => Promise<LyricSyncEnvironment>
+  startLyricSync: (request: LyricSyncRequest) => Promise<LyricSyncResult>
+  cancelLyricSync: () => Promise<boolean>
+  onLyricSyncEvent: (callback: (event: LyricSyncEvent) => void) => () => void
   getPotStatus: () => Promise<PotStatus>
   startPotProvider: () => Promise<PotStatus>
   checkDownloadQuality: (url?: string | null) => Promise<QualityCheckResult>

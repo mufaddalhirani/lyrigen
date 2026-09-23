@@ -1,4 +1,4 @@
-import { parseLrc, parseEslrc, parseTTML, parseYrc, stringifyTTML, type LyricLine } from '@applemusic-like-lyrics/lyric'
+import { parseLrc, parseEslrc, parseLrcA2, parseTTML, parseYrc, stringifyLrcA2, stringifyTTML, type LyricLine } from '@applemusic-like-lyrics/lyric'
 
 export type LyricTiming = 'word' | 'estimated' | 'unsynced'
 export interface LyricDocument { lines: LyricLine[]; timing: LyricTiming; metadata: [string, string[]][] }
@@ -73,11 +73,47 @@ export function parseLyricDocument(source: string, extension: string, durationMs
     const lines = content.split(/\r?\n/).filter(row => row.trim()).map((word): LyricLine => ({ words: [{ word, startTime: 0, endTime: 1 }], startTime: 0, endTime: 1, isBG: false, isDuet: false, translatedLyric: '', romanLyric: '' }))
     return { lines, metadata: [], timing: 'unsynced' }
   }
-  const enhanced = /<\d+:\d+(?:\.\d+)?>/.test(content)
+  // Two word-timed LRC dialects exist. The standard one ("A2", Enhanced LRC)
+  // puts word stamps in angle brackets: `[00:01.00]<00:01.00>Hello<00:01.40> world`.
+  // ESLyRiC uses square ones mid-line: `[00:01.00]Hello[00:01.40] world`. Each
+  // needs its own parser — A2 used to go to the ESLyRiC one, which read every
+  // standard word-timed file as zero lines.
+  const a2 = /<\d+:\d+(?:\.\d+)?>/.test(content)
+  const eslrc = !a2 && /\[\d+:\d+(?:\.\d+)?\][^[\n]+\[\d+:\d+(?:\.\d+)?\]/.test(content)
+  const enhanced = a2 || eslrc
   const offset = Number(content.match(/\[offset:([+-]?\d+)\]/i)?.[1] ?? 0)
-  const lines = (enhanced ? parseEslrc(content) : parseLrc(content)).map(line => ({ ...line, startTime: line.startTime + offset, endTime: line.endTime + offset, words: line.words.map(word => ({ ...word, startTime: word.startTime + offset, endTime: word.endTime + offset })) }))
+  const parsed = a2 ? joinA2Spacers(parseLrcA2(content)) : eslrc ? parseEslrc(content) : parseLrc(content)
+  const lines = parsed.map(line => ({ ...line, startTime: line.startTime + offset, endTime: line.endTime + offset, words: line.words.map(word => ({ ...word, startTime: word.startTime + offset, endTime: word.endTime + offset })) }))
   const normalized = normalizeLines(lines, durationMs)
   return { lines: enhanced ? normalized : estimateWordTiming(normalized), metadata: [], timing: enhanced ? 'word' : 'estimated' }
+}
+
+/**
+ * The A2 parser returns the space between two words as a word of its own,
+ * timed 0–0. Left in, the highlight jumps back to the start of the song on
+ * every gap; folded into the next word as a leading space, it is how the
+ * renderer expects words to be spelled anyway.
+ */
+function joinA2Spacers(lines: LyricLine[]): LyricLine[] {
+  return lines.map(line => {
+    const words: LyricLine['words'] = []
+    let pendingSpace = ''
+    for (const word of line.words) {
+      if (!word.word.trim()) { pendingSpace = ' '; continue }
+      words.push({ ...word, word: `${pendingSpace && !/^\s/.test(word.word) ? ' ' : ''}${word.word}` })
+      pendingSpace = ''
+    }
+    return { ...line, words }
+  })
+}
+
+/**
+ * Word-timed LRC in the standard A2 dialect — what other players read, and
+ * what the parser above reads back word for word.
+ */
+export function exportLyricDocumentLrc(document: LyricDocument) {
+  if (document.timing === 'unsynced') throw new Error('Untimed text needs alignment before LRC export.')
+  return stringifyLrcA2(document.lines)
 }
 
 export function exportLyricDocument(document: LyricDocument) {

@@ -60,7 +60,16 @@
     },
     "portable": {
       "artifactName": "Lyrigen-Portable-${version}.exe"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "python",
+        "to": "python",
+        "filter": [
+          "*.py"
+        ]
+      }
+    ]
   },
   "dependencies": {
     "@applemusic-like-lyrics/core": "^0.5.2",

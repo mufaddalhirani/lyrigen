@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/common/Icon'
 import { Stat } from '../components/common/Stat'
 import { LyricsFinder, type FinderTrack } from '../components/LyricsFinder'
+import { AiLyricSync, type SyncTarget } from '../components/AiLyricSync'
 import { displayArtist, prettyTime } from '../lib/format'
 
 /**
@@ -59,6 +60,12 @@ export function LyricsHub({ library, onRefresh, flash }: { library: LibraryTrack
     } finally { setBusy(false) }
   }
 
+  const [syncTarget, setSyncTarget] = useState<SyncTarget | null>(null)
+  const syncPanel = useRef<HTMLDivElement>(null)
+  const openSync = (track: LibraryTrack) => {
+    setSyncTarget({ audioPath: track.audioPath, title: track.title, artist: displayArtist(track), duration: track.duration, lyricPath: track.lyricPath })
+    syncPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
   const openFinder = (track: LibraryTrack) => setFinder({ audioPath: track.audioPath, title: track.title, artist: track.artist, album: track.album, duration: track.duration, hasLyricFile: Boolean(track.lyricPath) })
 
   return <section className="tool-page">
@@ -68,6 +75,8 @@ export function LyricsHub({ library, onRefresh, flash }: { library: LibraryTrack
       <p>Unison is the crowdsourced lyric database behind the Better Lyrics extension: word-synced TTML and line-synced LRC ranked by community votes, matched by song name or exactly by YouTube video id. Lyrigen saves matches beside your files so they load offline in the player.</p>
       <div className="lyrics-stats"><Stat label="Tracks" value={String(counts.total)} /><Stat label="With lyrics" value={String(counts.withLyrics)} /><Stat label="Word-synced" value={String(counts.wordSynced)} /><Stat label="Missing" value={String(counts.missing)} /></div>
     </div>
+
+    <div ref={syncPanel}><AiLyricSync target={syncTarget} onPickTarget={setSyncTarget} onSaved={onRefresh} flash={flash} /></div>
 
     <div className="tool-panel">
       <div className="tool-panel-head">
@@ -97,7 +106,7 @@ export function LyricsHub({ library, onRefresh, flash }: { library: LibraryTrack
                 : track.lyricPath ? <span className={`chip ${format === 'TTML' || format === 'YRC' ? 'sync-richsync' : format === 'LRC' ? 'sync-linesync' : 'sync-plain'}`}>{format === 'TTML' || format === 'YRC' ? `Word-synced · ${format}` : format === 'LRC' ? 'Line-synced · LRC' : 'Plain text'}</span>
                 : <span className="chip">none</span>}
             </div>
-            <div className="actions"><button className="mini-button" onClick={() => openFinder(track)}>Find…</button></div>
+            <div className="actions"><button className="mini-button" onClick={() => openFinder(track)}>Find…</button><button className="mini-button" title="Time the words with the local AI model" onClick={() => openSync(track)}>AI sync</button></div>
           </div>
         })}
         {!tracks.length && <div className="tool-panel-empty">{library.length ? (filter === 'missing' ? 'Every song has a lyric file. Switch to "All songs" to replace any of them.' : 'No songs match that filter.') : 'Add a library folder first.'}</div>}
