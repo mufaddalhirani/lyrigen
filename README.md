@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/lyrigen-icon.png" width="112" alt="Lyrigen icon" />
+<img src="docs/icon.png" width="112" alt="Lyrigen icon" />
 
 # Lyrigen
 
