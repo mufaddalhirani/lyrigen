@@ -13,3 +13,5 @@ junk/
 # Python bytecode
 __pycache__/
 *.pyc
+lyric-studio/build/
+*.egg-info/
