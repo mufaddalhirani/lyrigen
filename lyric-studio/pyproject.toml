@@ -19,6 +19,10 @@ dependencies = [
   "customtkinter>=5.2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/mufaddalhirani/lyrics-studio"
+Lyrigen = "https://github.com/mufaddalhirani/lyrigen"
+
 [project.optional-dependencies]
 # faster-whisper is built against CUDA 12; these ship its libraries as wheels,
 # so an NVIDIA GPU works whatever system CUDA toolkit is (or is not) installed.

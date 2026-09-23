@@ -62,7 +62,7 @@ const expand = win.getByRole('button', { name: /full player|expand|now playing/i
 if (await expand.count()) await expand.click().catch(() => undefined)
 await win.waitForTimeout(2000)
 const seek = Number(process.env.SYNC_SEEK || 45)
-await win.evaluate(seconds => { const media = document.querySelector('audio'); if (media) { media.currentTime = seconds; void media.play() } }, seek)
+await win.evaluate(seconds => { const media = document.querySelector('audio:not(.track-preloader)'); if (media) { media.currentTime = seconds; void media.play() } }, seek)
 await win.waitForTimeout(4000)
 await win.screenshot({ path: path.join(out, 'playing.png') })
 const words = await win.evaluate(() => {

@@ -31,9 +31,9 @@ const state = () => win.evaluate(() => {
   const wrapper = document.querySelector('.synced-lyrics [data-gap]')
   if (!canvas) return { canvas: false }
   const rect = canvas.getBoundingClientRect()
-  return { time: document.querySelector('audio').currentTime.toFixed(1), gap: wrapper?.dataset.gap, size: `${Math.round(rect.width)}x${Math.round(rect.height)}`, opacity: getComputedStyle(canvas).opacity, background: getComputedStyle(canvas).backgroundColor }
+  return { time: document.querySelector('audio:not(.track-preloader)').currentTime.toFixed(1), gap: wrapper?.dataset.gap, size: `${Math.round(rect.width)}x${Math.round(rect.height)}`, opacity: getComputedStyle(canvas).opacity, background: getComputedStyle(canvas).backgroundColor }
 })
-const seek = seconds => win.evaluate(value => { const audio = document.querySelector('audio'); audio.currentTime = value; void audio.play() }, seconds)
+const seek = seconds => win.evaluate(value => { const audio = document.querySelector('audio:not(.track-preloader)'); audio.currentTime = value; void audio.play() }, seconds)
 
 await seek(Number(gapAt)); await win.waitForTimeout(2500)
 console.log('in a gap   :', JSON.stringify(await state()))

@@ -3,6 +3,8 @@
   "productName": "Lyrigen",
   "description": "Free local-first music player with liquid lyrics, sound tools, and automatic library scanning",
   "author": "Lyrigen",
+  "homepage": "https://github.com/mufaddalhirani/lyrigen",
+  "repository": { "type": "git", "url": "https://github.com/mufaddalhirani/lyrigen.git" },
   "private": true,
   "version": "2.5.0",
   "main": "dist-electron/main.js",

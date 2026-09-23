@@ -9,7 +9,7 @@ REM  Close the app window when you're done.
 REM ---------------------------------------------------------------
 
 setlocal
-set "APP=%~dp0release\win-unpacked\Lyrigen.exe"
+set "APP=%~dp0..\release\win-unpacked\Lyrigen.exe"
 
 if not exist "%APP%" (
   echo.

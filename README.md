@@ -1,128 +1,133 @@
-# Lyrigen 2.0
+<div align="center">
 
-A free, local-first Windows music player with liquid visuals and synced lyrics.
+<img src="assets/lyrigen-icon.png" width="112" alt="Lyrigen icon" />
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the app is built, how the visual modes and DSP genre presets work, and how to get real word-level lyric timing for free with Meta's MMS forced aligner or faster-whisper + stable-ts.
+# Lyrigen
 
-## Start listening
+**A free, local-first music player for Windows — with word-by-word lyrics, karaoke-grade syllable sync, a DJ mode and liquid visuals.**
 
-1. Build it: `npm install`, then `npm run build`. That produces an installer (Start Menu shortcut and uninstaller) and a portable `.exe` in `release\`, both named with the current version. Use `npm run build:dir` for just an unpacked `release\win-unpacked\Lyrigen.exe`, or `npm run dev` while working on the code.
+Your music, on your computer. No account, no subscription, no telemetry.
 
-   To cut a new version, use `npm run release:patch` (fixes), `release:minor` (features) or `release:major`. Each bumps the version, deletes the previous artifacts and rebuilds, so `release\` only ever holds one installer and one portable — which is what makes two builds tellable apart.
-2. Choose the one main folder that contains your music.
-3. Lyrigen remembers it and scans every folder beneath it whenever the app opens.
+[![Download for Windows](https://img.shields.io/badge/Download-Windows%2010%20%2F%2011-d18fa0?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mufaddalhirani/lyrigen/releases/latest)
+&nbsp;
+[![Lyric Studio](https://img.shields.io/badge/Companion-Lyric%20Studio-8b7cff?style=for-the-badge)](https://github.com/mufaddalhirani/lyrics-studio)
 
-The Home screen stays lightweight and does not open the full track list automatically. Open Library when you want the sorted album/folder view; use Smart Library for Needs lyrics, Lossless, Videos, Duplicates, and My playlist.
+[![Latest release](https://img.shields.io/github/v/release/mufaddalhirani/lyrigen?label=version&color=d18fa0)](https://github.com/mufaddalhirani/lyrigen/releases/latest)
+![Platform](https://img.shields.io/badge/platform-Windows-4a4a55)
+![Built with](https://img.shields.io/badge/built%20with-Electron%20%2B%20React-4a4a55)
 
-New albums appear automatically while the app is open. Nothing is uploaded, and local playback does not need an account.
+<img src="docs/screenshots/player.jpg" alt="Now playing: word-by-word lyrics over a fluid background made from the album art" width="920" />
 
-## Lyrics
+</div>
 
-- Put an `.lrc`, `.ttml`, `.yrc`, or `.txt` file beside its song with the same filename.
-- If no local file exists, playing the song automatically checks the free AMLL TTML DB first — a community mirror of real, word-by-word Apple Music lyrics, searchable by title/artist, no login or subscription needed — then falls back to LRCLIB for a line-synced match.
-- Open Sound Lab to save a matched LRC, or use **Create TTML** to save a fetched/estimated document as an Apple-style word-timed TTML file beside the song (this also re-saves a freshly-fetched AMLL TTML match locally).
-- LRC lines are enhanced into estimated word flow. Real word-timed TTML/YRC (from the AMLL DB, a downloaded file, or forced alignment) remains more precise.
-- Use the ±50 ms controls when a lyric file needs a small timing correction.
-- Click any lyric line to seek it; the selected line is re-centered even after manual scrolling.
-- Discover links to the free AMLL TTML editor and community TTML database for true word timing.
-- No lyrics file, or only line timing? **Lyrics Finder → AI sync** times any song on your own computer, **word by word or syllable by syllable** for karaoke. It finds the lyrics online by itself, keeps any word timing a person already made, and saves a TTML/LRC beside the song. The engine is [Lyric Studio](lyric-studio/README.md), which also installs and runs on its own (`lyric-studio/install.bat`). Sound Lab → Lyric tools → **Import alignment JSON** still accepts output from your own aligner runs.
+---
 
-## Downloading, sorting and lyrics
+## Highlights
 
-These three screens live under **Tools** in the sidebar. They need `yt-dlp.exe` and `ffmpeg.exe` / `ffprobe.exe` on your machine — Lyrigen does not bundle or download them. It looks in the folder you set in Settings, then `C:\seng`, `C:\ffmpeg\bin`, `C:\tools`, scoop, WinGet and `PATH`, and the Downloads screen tells you which ones it found.
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/home.jpg" alt="Home" /><br /><b>Home</b> — pick up where you left off, shelves built from what you actually play.</td>
+<td width="50%"><img src="docs/screenshots/library.jpg" alt="Library" /><br /><b>Library</b> — folders, songs, albums, artists and genres; opens instantly, even with thousands of songs.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/player-interlude.jpg" alt="Lyrics with a live visualizer in an instrumental break" /><br /><b>Live lyrics</b> — word- and syllable-timed; a small visualizer plays in instrumental breaks.</td>
+<td><img src="docs/screenshots/brat.jpg" alt="brat lyric mode" /><br /><b>brat mode</b> — lime green, each word flies in from alternate sides as it is sung.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/dj.jpg" alt="DJ screen with two decks" /><br /><b>DJ</b> — two decks with automatic BPM, beat sync, loops, hot cues, effects, sampler and automix.</td>
+<td><img src="docs/screenshots/lyrics.jpg" alt="AI lyric sync" /><br /><b>AI lyric sync</b> — time any song word by word or syllable by syllable, on your own PC.</td>
+</tr>
+</table>
 
-- **Downloads** — paste a YouTube link (or a playlist) and Lyrigen inspects it, shows you the artist/title/album it worked out from the video title, and lets you correct anything before it starts. Then it downloads, writes clean tags, finds lyrics, and files the song away — one pass, with live progress.
-- **Organizer** — point it at a folder of loose downloads and it builds a **plan**: what each file actually is, and where it would go. Nothing moves until you approve it, you can edit any row, and **Undo** puts the whole batch back. Songs are sorted into `Artist\Album\` folders that it creates as needed (several layouts to choose from, or write your own template). Lyric and cover files travel with the song.
-- **Lyrics Finder** — fetches lyrics for songs in your library that have none, in bulk, or lets you pick the match yourself per song.
+## Install
 
-Lyrics come from four free sources, and Lyrigen always keeps the **best-timed** one rather than the first that answers:
+1. **Download** the latest version from **[Releases](https://github.com/mufaddalhirani/lyrigen/releases/latest)**:
+   - `Lyrigen Setup 2.5.0.exe` — installs with a Start-menu shortcut and an uninstaller (recommended), or
+   - `Lyrigen-Portable-2.5.0.exe` — a single file that runs from anywhere, no install.
+2. **Run it.** Windows may show *"Windows protected your PC"* because the app isn't code-signed yet. Click **More info → Run anyway**.
+3. **Choose your music folder.** Lyrigen scans every folder beneath it and remembers it. That's it.
 
-| Source | Timing | Notes |
+Requirements: Windows 10 or 11, 64-bit. Nothing is uploaded; lyrics are the only thing fetched from the internet, and only if you let it.
+
+### Optional extras
+
+| For | Install | Then |
 |---|---|---|
-| **Better Lyrics** | syllable / word | Same API the Better Lyrics extension uses, which itself aggregates Musixmatch, BiniLyrics, Kugou and its own corpus |
-| **Unison** | word / line | Crowdsourced; matched by YouTube video id, so Lyrigen's own downloads hit exactly |
-| **AMLL TTML DB** | word | Community mirror of Apple Music word-synced TTML |
-| **LRCLIB** | line | Broadest coverage, line-synced only — the last resort, not the default |
+| **AI lyric sync** (word/syllable timing for karaoke) | [Python 3.10+](https://www.python.org/downloads/) and [Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio) — double-click its `install.bat` | Lyrics Finder → **AI sync** on any song |
+| **Downloads** screen | `winget install yt-dlp.yt-dlp` and `winget install Gyan.FFmpeg` | Lyrigen finds them on `PATH`, or point Settings at their folder |
 
-Selection is by timing granularity first (syllable → word → line → plain), then match quality, then source. A line-synced LRCLIB hit can no longer beat word-synced TTML for the same song. The granularity is verified by reading the fetched document, not trusted from the search result.
+## Features
 
-**About the Better Lyrics cache.** Its API serves anything already cached with no key, and Lyrigen falls straight through to Unison → AMLL → LRCLIB when a song isn't. Keys are not currently being issued (each cache miss costs them a paid upstream lookup), so leave that setting empty. Their docs suggest playing a song in the Better Lyrics extension primes the cache; in testing that did not hold — songs played in the extension still came back as cache misses — so treat it as unreliable. For songs no source covers word-synced, run local forced alignment (see `scripts/align_lyrics.py`) to generate real word timing from line-synced lyrics.
+<details open>
+<summary><b>Player</b></summary>
 
-Lyrics are saved **twice, on purpose**: as a `.ttml`/`.lrc` file beside the song, which keeps word-by-word timing and is what Lyrigen reads, and **inside the audio file's own tags** so any other player shows them too (ID3 `USLT` + `SYLT` for MP3; a `lyrics` tag for M4A, FLAC and Opus, written by an ffmpeg stream copy — no re-encode, no quality loss). They are fetched once and kept, so playing a song again never re-downloads them. Both can be switched off per screen.
+- **Fluid background** made from the album art, drawn with [Kawarp](https://github.com/better-lyrics/kawarp) (the renderer behind Better Lyrics Shaders); it pulses with the beat. Strength, warp, speed and colour are adjustable, and it stays light: low resolution, capped frame rate, paused when the window is hidden.
+- **Visual modes:** Balanced, Lyrics only, Cover only, Spinning vinyl, Reactive visualizer, and **brat**.
+- Six-band EQ with presets, genre sound modes, dynamic leveling, pitch shift, pitch-preserving speed, centre-vocal reduction, A–B looping, gapless preloading, resume where you paused, an always-on-top mini player, and global media keys.
+</details>
 
-Sped-up and slowed edits are handled: Lyrigen recognises Nightcore / Slowed + Reverb / Daycore and similar in a title, and stretches the lyric timestamps to the file's real length so they still line up.
+<details open>
+<summary><b>Lyrics</b></summary>
 
-Set an **inbox folder** in Downloads settings (your browser's download folder, say) and anything audio that lands there is tagged, given lyrics and filed automatically.
+- Reads `.ttml`, `.lrc`, `.yrc` and `.txt` beside each song; **click any word to jump to it**.
+- Finds lyrics automatically from free sources (Better Lyrics, BiniLyrics, Unison, AMLL TTML DB, LRCLIB) and keeps the **best-timed** match: syllable → word → line → plain.
+- Saves them beside the song *and* inside the file's own tags, so other players see them too.
+- **AI sync** times any song on your computer — word by word, or syllable by syllable for karaoke — keeping any timing a person already made. Powered by [Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio).
+- Handles sped-up / slowed / nightcore edits by stretching the timings to fit.
+</details>
 
-## Listening and recaps
+<details>
+<summary><b>DJ</b></summary>
 
-The **Listening** screen keeps a recap for the last week, month, year, or all time: plays, hours listened, how many different songs and artists, your top artists, songs and genres, and a chart of when you listened. Everything stays on this computer — no account, nothing uploaded.
+- Two decks with **automatic BPM and beat grid**, **Sync** (tempo and phase, half/double-time aware), keylock, tempo ranges ±8 / 16 / 50 %.
+- Coloured scrolling and overview waveforms, CDJ-style cue, four hot cues per song, ½–16-beat loops, loop in/out, beat roll, vinyl brake, quantize.
+- Three-band EQ with kills, filter sweep, echo, reverb, flanger, bitcrush, and an eight-pad sampler.
+- **Automix** blends queued songs on the beat; **record your mix** to an Opus file; **MIDI learn** for any USB controller; full-screen **party mode**.
+- Keeps playing while you browse, and never plays over the main player.
+</details>
 
-Plays are counted once per track per play, so hours listened treats each play as a full listen.
+<details>
+<summary><b>Library tools</b></summary>
 
-## Settings
+- **Metadata Studio** to fix tags and artwork, with undo.
+- **Organizer** plans moves into `Artist\Album\` folders — nothing moves until you approve, and Undo puts it all back.
+- **Lyrics Finder** fills in missing lyrics in bulk or lets you pick the match yourself.
+- **Downloads** (optional, uses your own yt-dlp): inspects a link, lets you correct artist/title/album, then tags, adds lyrics and files the song. Duplicate detection across your folders, quality checks, and an inbox folder that files new downloads automatically.
+- **Listening** recaps for the week, month, year or all time — kept on your computer.
+</details>
 
-**Settings** in the sidebar covers how the app behaves:
+<details>
+<summary><b>Keyboard</b></summary>
 
-- **When Lyrigen opens** — start playing automatically (off by default), resume where you left off, rescan folders on launch.
-- **Lyrics** — look up lyrics automatically for songs that have none.
-- **Window** — keep running in the tray when closed, and reduced motion.
-- **Safety** — confirm before the Organizer moves anything.
-- **Library folders** — add or remove the folders Lyrigen scans. Removing one only stops it being scanned; no files are deleted.
-- **Data** — clear play history or resume positions, reset the window size, open the data folder.
+| Key | Action |
+|---|---|
+| `Space` | Play / pause (in DJ: the louder deck) |
+| `←` / `→` | Back / forward 10 seconds |
+| `M` · `S` · `R` | Mute · shuffle · repeat mode |
+| `Ctrl` + `K` | Search your library (`Esc` clears it) |
+| Media keys | Play, previous, next — even when Lyrigen is in the background |
+</details>
 
-Settings that belong to one feature stay with it — download options in Downloads, themes in Sound Lab, EQ on the player — and are linked from Settings rather than duplicated, so there is only ever one of each.
+## Privacy
 
-## Suggestions
+Lyrigen is local-first. There is no account and no telemetry; your library, play history and settings stay in your Windows user folder. The only network requests are lyric look-ups (which you can switch off) and, if you use them, the optional download and catalog screens.
 
-Home builds four shelves from your own library and play counts — no service, no account, nothing leaves the machine:
+## Build from source
 
-- **Speed dial** — what you reach for most.
-- **Quick picks** — more from the artists you have been playing, weighted toward tracks you have *not* worn out.
-- **On repeat lately** — what you have played recently.
-- **Never played** — in your library, never opened.
+```bash
+git clone https://github.com/mufaddalhirani/lyrigen.git
+cd lyrigen
+npm install
+npm run dev        # run it while you work on the code
+npm run build      # installer + portable exe in release\
+```
 
-**Shuffle everything** starts a random run through the whole library.
+How it is put together — visual modes, the DSP presets, lyric timing, the DJ engine — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The end-to-end checks the app is tested with live in [`scripts/`](scripts/).
 
-## Sound Lab
+## Please use it responsibly
 
-Four sections: **Appearance** (themes, type, lyric motion), **Sound** (what each playback control does), **Lyric tools** (the LRC → TTML converter), and **Mixer**.
+The optional Downloads screen drives [yt-dlp](https://github.com/yt-dlp/yt-dlp), which you install yourself. Only download what you have the right to — your own uploads, public-domain or Creative-Commons music, or content the service's terms allow — and respect the terms of the sites you use.
 
-The player's sound controls include **bass and treble** shortcuts over the six-band EQ, and **pitch** — shift the key by up to a tone either way without changing speed. Centred, the pitch shifter is bypassed entirely.
+## Credits
 
-The **mixer** is two decks with independent speed, trim and an equal-power crossfader, running on its own audio graph so it never disturbs playback or your queue. There is no tempo detection — match tracks by ear with the speed sliders, the way you would on real decks.
-
-## Themes and appearance
-
-Sound Lab → **Themes** changes how the whole app looks, straight away, and remembers it:
-
-- **Theme** — Nocturne Bloom (default), Spotlight (high contrast), Lucid (cool frosted glass), Ember (warm, low glare), Paper (light), Monochrome (greyscale, minimal motion).
-- **Typeface** — System, Serif, Rounded, Mono or Condensed, applied to both the interface and the lyrics.
-- **Lyric motion** — Glow, Scale, Focus (blurs inactive lines) or Still. Pick **Still** on a weaker GPU; it removes per-line animation entirely.
-
-Icons throughout are [Google Material Symbols](https://fonts.google.com/icons) (Apache 2.0), bundled into the app rather than fetched, so nothing depends on a network connection.
-
-## Lyrics you can click
-
-With word-synced lyrics, **clicking any word jumps to that exact word** — not just the start of the line. Words highlight as you hover so you can see the target. Clicking the gap between words still seeks to the line start.
-
-## Visual modes
-
-Open Sound Lab while a track is playing to switch the now-playing screen between five views: **Balanced** (cover + lyrics together), **Lyrics only**, **Cover only**, **Spinning vinyl** (the album art becomes a slowly turning record), and **Reactive visualizer** (lightweight bars that follow the music). The "Reduced motion" toggle right below it turns off all of the ambient/spinning/bar animation for slower machines while keeping word-by-word lyric highlighting.
-
-## Controls
-
-- `Space`: play or pause
-- `Left` / `Right`: move 10 seconds
-- `M`: mute
-- `S`: shuffle
-- `R`: repeat mode
-- Media play, previous, and next keys work globally while Lyrigen is running.
-
-Sound Lab includes a six-band equalizer with tone presets (Flat, Warm, Bass lift, Vocal focus, Late night, Bright, Hyperpop, Lo-fi, Dream pop, Night drive, Vinyl warmth, Arena), dynamic leveling, pitch-preserving speed, center-vocal reduction, and A–B looping. These are local tone-shaping presets — a light EQ curve and, on a couple of them, a touch of waveshaper drive — not AI genre conversion. The mini-player stays above other windows. Same-name local video files can become synchronized backdrops. Lyrigen also remembers where you paused a track and picks up from there next time.
-
-Use the Speed dial for precise 0.05× steps. Right-click a track to add/remove it from the local My playlist. The in-app mini-player keeps audio playing while you browse Home, Library, and Smart Library; the optional always-on-top mini window remains available too. Next-track audio is preloaded for a fast, gapless-style handoff without a continuous visualizer loop.
-
-## Free catalogs
-
-The Discover screen links to LRCLIB, MusicBrainz, Internet Archive Audio, and Free Music Archive. Licenses vary on public music sites; check each item before downloading or sharing it.
+[Apple Music-like Lyrics (AMLL)](https://github.com/Steve-xmh/applemusic-like-lyrics) for the lyric renderer · [Kawarp](https://github.com/better-lyrics/kawarp) for the fluid background · lyrics from [Better Lyrics](https://better-lyrics.boidu.dev), [BiniLyrics](https://lyrics.binimum.org), [Unison](https://unison.boidu.dev), [AMLL TTML DB](https://github.com/Steve-xmh/amll-ttml-db) and [LRCLIB](https://lrclib.net) · icons from [Material Symbols](https://fonts.google.com/icons) · [music-metadata](https://github.com/borewit/music-metadata) · [Electron](https://www.electronjs.org), [React](https://react.dev) and [Vite](https://vite.dev).
