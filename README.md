@@ -25,7 +25,7 @@ New albums appear automatically while the app is open. Nothing is uploaded, and 
 - Use the ±50 ms controls when a lyric file needs a small timing correction.
 - Click any lyric line to seek it; the selected line is re-centered even after manual scrolling.
 - Discover links to the free AMLL TTML editor and community TTML database for true word timing.
-- No lyrics file at all, or want real word timing for a song you already have plain lyrics for? Sound Lab → Lyric tools → **Import alignment JSON** accepts free, local output from Meta's MMS forced aligner or faster-whisper + stable-ts — see `scripts/align_lyrics.py` and `docs/ARCHITECTURE.md`.
+- No lyrics file, or only line timing? **Lyrics Finder → AI sync** times any song on your own computer, **word by word or syllable by syllable** for karaoke. It finds the lyrics online by itself, keeps any word timing a person already made, and saves a TTML/LRC beside the song. The engine is [Lyric Studio](lyric-studio/README.md), which also installs and runs on its own (`lyric-studio/install.bat`). Sound Lab → Lyric tools → **Import alignment JSON** still accepts output from your own aligner runs.
 
 ## Downloading, sorting and lyrics
 

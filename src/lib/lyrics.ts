@@ -121,6 +121,19 @@ export function exportLyricDocument(document: LyricDocument) {
   return stringifyTTML({ lines: document.lines, metadata: [...document.metadata.filter(([key]) => key !== 'lyrigen:timing'), ['lyrigen:timing', [document.timing]]] })
 }
 
+/**
+ * Whether any word is split into separately timed syllables — karaoke-grade
+ * timing, as Apple's syllable TTML and Lyric Studio's write it. The parser
+ * returns each syllable as its own piece; two pieces with no space between
+ * them are two halves of one word.
+ */
+export function hasSyllableTiming(lines: LyricLine[]) {
+  return lines.some(line => line.words.some((word, index) => {
+    const previous = line.words[index - 1]
+    return Boolean(previous?.word.trim() && word.word.trim() && !/\s$/.test(previous.word) && !/^\s/.test(word.word))
+  }))
+}
+
 /** Whisper/stable-ts JSON timestamps are seconds. AMLL always receives integer milliseconds. */
 export function fromAlignmentJson(source: string): LyricDocument {
   const data = JSON.parse(source) as { segments?: Array<{ words?: Array<{ word: string; start: number; end: number }> }> }

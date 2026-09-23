@@ -6,14 +6,15 @@ import { app } from 'electron'
 import { ffmpegLocation, run } from './media-tools'
 
 /**
- * Local AI lyric sync: word-level timing from stable-ts + faster-whisper.
+ * Local AI lyric sync: word- and syllable-level timing, made on this computer.
  *
- * The model runs in a Python child process (python/lyric_sync.py), so however
- * long a song takes, the app's own threads never wait on it. The worker writes
- * one JSON event per line; this module relays them and returns the timed
- * segments. Turning those into TTML or LRC happens in the renderer with the
- * same code the player already uses to import alignment files, so a generated
- * file and an imported one are indistinguishable.
+ * The engine is Lyric Studio (lyric-studio/lyricstudio), which also installs
+ * and runs on its own. Here it runs as `python -m lyricstudio.cli` in a child
+ * process, so however long a song takes, the app's own threads never wait on
+ * it. The worker writes one JSON event per line; this module relays them and
+ * returns the timed segments together with the finished TTML and LRC — the
+ * same files the standalone app saves, so a song synced in either plays the
+ * same in both.
  */
 
 export interface LyricSyncRequest {
@@ -29,8 +30,10 @@ export interface LyricSyncRequest {
    * from a line-synced file. Each line is then aligned only within its own
    * moment — much faster and far more reliable than aligning the whole song.
    */
-  lyricsLines?: Array<{ text: string; start: number; end: number | null }> | null
+  lyricsLines?: Array<{ text: string; start: number; end: number | null; words?: Array<{ word: string; start: number; end: number }> }> | null
   device?: 'auto' | 'cuda' | 'cpu'
+  /** Syllables are what karaoke highlights; words are quicker and need less. */
+  level?: 'word' | 'syllable'
 }
 
 export interface LyricSyncEvent {
@@ -43,20 +46,31 @@ export interface LyricSyncEvent {
   percent?: number
 }
 
+export type LyricSyncMode = 'from-words' | 'align-lines' | 'align' | 'transcribe'
+
 export interface LyricSyncResult {
   ok: boolean
   message?: string
-  mode?: 'align-lines' | 'align' | 'transcribe'
+  mode?: LyricSyncMode
+  level?: 'word' | 'syllable'
   language?: string
   device?: string
   seconds?: number
-  segments?: Array<{ text: string; start: number; end: number; words: Array<{ word: string; start: number; end: number }> }>
+  /** Why the timing was moved, re-done or fell back, in words; empty when nothing happened. */
+  note?: string
+  /** Syllable words placed by the aligner vs. split by length. */
+  syllableStats?: { acoustic: number; fallback: number } | null
+  segments?: Array<{ text: string; start: number; end: number; words: Array<{ word: string; start: number; end: number; syllables?: Array<{ text: string; start: number; end: number }> }> }>
+  ttml?: string
+  lrc?: string
 }
 
 export interface LyricSyncEnvironment {
   python: string | null
   pythonVersion: string | null
   packages: { stableTs: string | null; fasterWhisper: string | null }
+  /** torch, transformers and uroman — what syllable timing needs on top. */
+  syllables: boolean
   gpus: number
   /** Whether the CUDA 12 runtime faster-whisper needs is installed via pip. */
   cudaRuntime: boolean
@@ -64,8 +78,9 @@ export interface LyricSyncEnvironment {
   message: string
 }
 
-function workerPath() {
-  return app.isPackaged ? path.join(process.resourcesPath, 'python', 'lyric_sync.py') : path.join(app.getAppPath(), 'python', 'lyric_sync.py')
+/** The folder that holds the lyricstudio package, for PYTHONPATH. */
+function studioRoot() {
+  return app.isPackaged ? path.join(process.resourcesPath, 'lyric-studio') : path.join(app.getAppPath(), 'lyric-studio')
 }
 
 let environment: LyricSyncEnvironment | null = null
@@ -76,6 +91,8 @@ const PROBE = [
   'try:\n import stable_whisper; info["stable"] = stable_whisper.__version__\nexcept Exception: pass',
   'try:\n import faster_whisper; info["fw"] = faster_whisper.__version__\nexcept Exception: pass',
   'try:\n import ctranslate2; info["gpus"] = ctranslate2.get_cuda_device_count()\nexcept Exception: pass',
+  // find_spec, not import: importing torch alone takes seconds.
+  'import importlib.util\ninfo["syllables"] = all(importlib.util.find_spec(name) for name in ("torch", "transformers", "uroman"))',
   'roots = []\ntry: roots += site.getsitepackages()\nexcept Exception: pass\ntry: roots.append(site.getusersitepackages())\nexcept Exception: pass',
   'info["cuda"] = any(glob.glob(os.path.join(r, "nvidia", "cublas", "bin", "cublas64_12.dll")) for r in roots)',
   'print(json.dumps(info))',
@@ -94,11 +111,11 @@ export async function lyricSyncEnvironment(refresh = false): Promise<LyricSyncEn
       const result = await run(command, [...prefix, '-c', PROBE], { timeoutMs: 60_000 })
       const line = result.stdout.trim().split(/\r?\n/).pop() ?? ''
       if (result.code !== 0 || !line.startsWith('{')) continue
-      const info = JSON.parse(line) as { version: string; executable: string; stable: string | null; fw: string | null; gpus: number; cuda: boolean }
+      const info = JSON.parse(line) as { version: string; executable: string; stable: string | null; fw: string | null; gpus: number; cuda: boolean; syllables: boolean }
       const ready = Boolean(info.stable && info.fw)
       environment = {
         python: info.executable, pythonVersion: info.version,
-        packages: { stableTs: info.stable, fasterWhisper: info.fw },
+        packages: { stableTs: info.stable, fasterWhisper: info.fw }, syllables: info.syllables,
         gpus: info.gpus, cudaRuntime: info.cuda, ready,
         message: !ready
           ? `Python ${info.version} is here, but ${[info.stable ? '' : 'stable-ts', info.fw ? '' : 'faster-whisper'].filter(Boolean).join(' and ')} is missing. Install with: pip install stable-ts faster-whisper`
@@ -109,7 +126,7 @@ export async function lyricSyncEnvironment(refresh = false): Promise<LyricSyncEn
       return environment
     } catch { /* try the next one */ }
   }
-  environment = { python: null, pythonVersion: null, packages: { stableTs: null, fasterWhisper: null }, gpus: 0, cudaRuntime: false, ready: false, message: 'Python was not found. Install Python 3, then: pip install stable-ts faster-whisper' }
+  environment = { python: null, pythonVersion: null, packages: { stableTs: null, fasterWhisper: null }, syllables: false, gpus: 0, cudaRuntime: false, ready: false, message: 'Python was not found. Install Python 3, then: pip install stable-ts faster-whisper' }
   return environment
 }
 
@@ -130,10 +147,11 @@ export async function runLyricSync(request: LyricSyncRequest, onEvent: (event: L
   const env = await lyricSyncEnvironment()
   if (!env.ready || !env.python) return { ok: false, message: env.message }
   if (!fs.existsSync(request.audioPath)) return { ok: false, message: 'That audio file is no longer there.' }
-  const script = workerPath()
-  if (!fs.existsSync(script)) return { ok: false, message: 'The lyric sync worker is missing from this install.' }
+  const root = studioRoot()
+  if (!fs.existsSync(path.join(root, 'lyricstudio', 'cli.py'))) return { ok: false, message: 'The lyric sync engine (Lyric Studio) is missing from this install.' }
+  const level = request.level === 'syllable' && env.syllables ? 'syllable' : 'word'
 
-  const args = [script, '--audio', request.audioPath, '--model', request.model || 'base', '--device', request.device ?? 'auto']
+  const args = ['-m', 'lyricstudio.cli', '--audio', request.audioPath, '--model', request.model || 'base', '--device', request.device ?? 'auto', '--level', level]
   if (request.language) args.push('--language', request.language)
   const ffmpegDir = ffmpegLocation()
   if (ffmpegDir) args.push('--ffmpeg-dir', ffmpegDir)
@@ -153,7 +171,8 @@ export async function runLyricSync(request: LyricSyncRequest, onEvent: (event: L
   let lastError = ''
   try {
     await new Promise<void>(resolve => {
-      const child = spawn(env.python!, args, { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' } })
+      const pythonPath = [root, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+      const child = spawn(env.python!, args, { windowsHide: true, env: { ...process.env, PYTHONPATH: pythonPath, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' } })
       current = child
       let stdoutBuffer = '', stderrBuffer = ''
       let workerReportsProgress = false
@@ -165,8 +184,11 @@ export async function runLyricSync(request: LyricSyncRequest, onEvent: (event: L
         for (const line of lines) {
           if (!line.trim().startsWith('{')) continue
           try {
-            const event = JSON.parse(line) as LyricSyncEvent & LyricSyncResult & { segments?: LyricSyncResult['segments'] }
-            if (event.event === 'result') result = { ok: true, mode: (event as { mode?: 'align-lines' | 'align' | 'transcribe' }).mode, language: (event as { language?: string }).language, device: event.device, seconds: (event as { seconds?: number }).seconds, segments: event.segments }
+            const event = JSON.parse(line) as LyricSyncEvent & Omit<LyricSyncResult, 'ok'>
+            if (event.event === 'result') {
+              const { event: _kind, stage: _stage, compute: _compute, percent: _percent, ...rest } = event
+              result = { ok: true, ...rest }
+            }
             else if (event.event === 'error') lastError = event.message ?? 'The sync failed.'
             else {
               if (event.event === 'progress') workerReportsProgress = true

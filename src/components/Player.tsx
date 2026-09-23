@@ -4,7 +4,7 @@ import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
 import { MaterialIcon } from './common/MaterialIcon'
 import { QualityBadge } from './common/QualityBadge'
-import { parseLyricDocument, exportLyricDocument, fromAlignmentJson, type LyricDocument } from '../lib/lyrics'
+import { parseLyricDocument, exportLyricDocument, fromAlignmentJson, hasSyllableTiming, type LyricDocument } from '../lib/lyrics'
 import { EQ_FREQUENCIES, EQ_PRESETS, useAudioPlayer } from '../hooks/useAudioPlayer'
 import '@applemusic-like-lyrics/core/style.css'
 
@@ -231,7 +231,7 @@ export function Player({
     setTiming(document.timing)
     setLyricSource(source)
     setRawSyncedLyrics(extension === 'lrc' ? content : '')
-    setLyricStatus(`${document.lines.length} lines · ${document.timing === 'word' ? 'word timing' : document.timing === 'estimated' ? 'estimated word flow' : 'untimed text'}`)
+    setLyricStatus(`${document.lines.length} lines · ${document.timing === 'word' ? (hasSyllableTiming(document.lines) ? 'syllable timing' : 'word timing') : document.timing === 'estimated' ? 'estimated word flow' : 'untimed text'}`)
   }, [])
 
   const findOnlineLyrics = useCallback(async (meta = metadata, totalDuration = durationMs) => {

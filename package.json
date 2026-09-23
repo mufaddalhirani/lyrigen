@@ -63,10 +63,14 @@
     },
     "extraResources": [
       {
-        "from": "python",
-        "to": "python",
+        "from": "lyric-studio",
+        "to": "lyric-studio",
         "filter": [
-          "*.py"
+          "lyricstudio/*.py",
+          "pyproject.toml",
+          "README.md",
+          "install.*",
+          "run.bat"
         ]
       }
     ]

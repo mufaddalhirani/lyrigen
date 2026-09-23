@@ -4,20 +4,26 @@ import { exportLyricDocument, exportLyricDocumentLrc, fromAlignmentJson, parseLy
 import { prettyTime } from '../lib/format'
 
 /**
- * Sync with AI: word-timed lyrics made on this computer.
+ * Sync with AI: word- and syllable-timed lyrics made on this computer.
  *
- * stable-ts drives faster-whisper in a background Python process, so the app
- * never waits on the model. Two ways in:
+ * The engine is Lyric Studio (lyric-studio/), run in a background Python
+ * process so the app never waits on the model. Pick a song and the rest is
+ * found for you: the song's own lyric file if it has one, otherwise the best
+ * lyrics online. Whatever timing those carry decides how the song is synced:
  *
- *  - Align (lyrics known). The words you already have are placed against the
- *    audio one by one. This is the accurate mode for songs: the model only
- *    decides *when* each word is sung, never *what* — transcription happily
- *    hears "my darling, what did you expect" as "my goal is what di…".
- *  - Transcribe (no lyrics). Whisper writes and times the words itself.
+ *  - Word-timed by a person (TTML): that timing is kept — checked against this
+ *    recording, since online files are often for a different master — and only
+ *    syllables are added.
+ *  - Line-timed (LRC): each line's words are aligned inside its own moment.
+ *  - Plain text: aligned across the whole song. The model decides *when* each
+ *    word is sung, never *what* — transcription happily hears "my darling,
+ *    what did you expect" as "my goal is what di…".
+ *  - Nothing: Whisper transcribes and times the words itself.
  *
- * The result goes through the same converter the player uses to import
- * alignment files, and is saved beside the song with the same save the
- * Lyrics Finder uses — backup of anything it replaces included.
+ * Syllable level is what karaoke highlights: a held note stretches across its
+ * syllable instead of the whole word lighting up at once. The engine returns
+ * finished TTML and LRC, saved beside the song with the Lyrics Finder's save —
+ * backup of anything it replaces included.
  */
 
 export interface SyncTarget { audioPath: string; title: string; artist: string | null; duration: number | null; lyricPath: string | null }
@@ -33,62 +39,136 @@ const MODELS: Array<{ value: string; label: string; hint: string }> = [
 const LANGUAGES: Array<[string, string]> = [['', 'Detect automatically'], ['en', 'English'], ['hi', 'Hindi'], ['ur', 'Urdu'], ['pa', 'Punjabi'], ['ta', 'Tamil'], ['te', 'Telugu'], ['bn', 'Bengali'], ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese'], ['es', 'Spanish'], ['pt', 'Portuguese'], ['fr', 'French'], ['de', 'German'], ['ar', 'Arabic'], ['tr', 'Turkish'], ['ru', 'Russian']]
 
 type Phase = 'idle' | 'running' | 'done' | 'error'
+type Level = 'syllable' | 'word'
+type TimedWord = { word: string; start: number; end: number }
+type TimedLine = { text: string; start: number; end: number | null; words?: TimedWord[] }
+/** The lyrics to sync and where they came from. */
+type LyricSource = { text: string; lines: TimedLine[] | null; label: string; wordTimed: boolean; machine: boolean }
 
-type TimedLine = { text: string; start: number; end: number | null }
+const EMPTY_SOURCE: LyricSource = { text: '', lines: null, label: '', wordTimed: false, machine: false }
+
+// The panel's choices outlive the session. Storage can be missing or refuse
+// writes; the defaults are fine then.
+const PREFERENCES_KEY = 'lyrigen.aiSync'
+type Preferences = { model: string; level: Level; language: string; format: 'ttml' | 'lrc'; embed: boolean }
+const DEFAULT_PREFERENCES: Preferences = { model: 'base', level: 'syllable', language: '', format: 'ttml', embed: true }
+function loadPreferences(): Preferences {
+  try { return { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? '{}') as Partial<Preferences> } } catch { return DEFAULT_PREFERENCES }
+}
+function savePreferences(preferences: Preferences) {
+  try { localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences)) } catch { /* not remembered, still works */ }
+}
 
 /**
- * The lyrics a song already has: the plain lines to show and edit, plus each
- * line's timing when the file was line-synced. Those timings are what let the
- * model align a line only within its own moment — seconds instead of minutes,
- * and reliable even on songs with long intros.
+ * Lines (and, when a person timed them, words) from any lyric document.
+ *
+ * The TTML parser returns syllables of one word as separate pieces — "ri",
+ * "ver " — so pieces are joined until one ends in a space; the engine wants
+ * whole words and makes its own syllables.
  */
-async function existingLyrics(lyricPath: string | null): Promise<{ text: string; lines: TimedLine[] | null }> {
-  if (!lyricPath) return { text: '', lines: null }
-  const content = await window.electronAPI.readFile(lyricPath).catch(() => null)
-  if (!content) return { text: '', lines: null }
-  const extension = lyricPath.split('.').pop()?.toLocaleLowerCase() ?? 'txt'
+function lyricsFromContent(content: string, extension: string, label: string): LyricSource {
   try {
-    const document = parseLyricDocument(content, extension === 'ttml' || extension === 'yrc' || extension === 'lrc' ? extension : 'txt')
+    const document = parseLyricDocument(content, extension)
     const rows = document.lines
-      .map(line => ({ text: line.words.map(word => word.word).join('').trim(), start: line.startTime / 1000, end: line.endTime / 1000 }))
+      .map(line => ({ text: line.words.map(word => word.word).join('').replace(/\s+/g, ' ').trim(), start: line.startTime / 1000, end: line.endTime / 1000, pieces: line.words }))
       .filter(line => line.text)
     const timed = document.timing !== 'unsynced' && rows.length > 0 && rows.some(line => line.start > 0)
-    return {
-      text: rows.map(line => line.text).join('\n'),
+    const wordTimed = timed && document.timing === 'word'
+    const lines = timed ? rows.map((line, index): TimedLine => {
       // Line starts are real in any synced file; ends are the next line's start.
-      lines: timed ? rows.map((line, index) => ({ text: line.text, start: line.start, end: rows[index + 1]?.start ?? null })) : null,
-    }
+      const entry: TimedLine = { text: line.text, start: line.start, end: rows[index + 1]?.start ?? null }
+      if (!wordTimed) return entry
+      const words: TimedWord[] = []
+      let joining = false
+      for (const piece of line.pieces) {
+        if (!piece.word.trim()) { joining = false; continue }
+        const startsWord = !joining || /^\s/.test(piece.word)
+        if (startsWord) words.push({ word: piece.word.trim(), start: piece.startTime / 1000, end: piece.endTime / 1000 })
+        else { const last = words[words.length - 1]; last.word += piece.word.trim(); last.end = piece.endTime / 1000 }
+        joining = !/\s$/.test(piece.word)
+      }
+      return words.length ? { ...entry, words } : entry
+    }) : null
+    // An earlier AI sync (Lyrigen's or Lyric Studio's) says so in its metadata.
+    const machine = document.metadata.some(([key]) => key === 'lyrigen:alignment')
+    return { text: rows.map(line => line.text).join('\n'), lines, label, wordTimed: Boolean(lines?.every(line => line.words)), machine }
   } catch {
-    return { text: content.replace(/\[[^\]]*\]|<[^>]*>/g, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('\n'), lines: null }
+    const text = content.replace(/\[[^\]]*\]|<[^>]*>/g, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('\n')
+    return { text, lines: null, label, wordTimed: false, machine: false }
   }
+}
+
+async function lyricsFromFile(lyricPath: string | null): Promise<LyricSource | null> {
+  if (!lyricPath) return null
+  const content = await window.electronAPI.readFile(lyricPath).catch(() => null)
+  if (!content?.trim()) return null
+  const extension = lyricPath.split('.').pop()?.toLocaleLowerCase() ?? 'txt'
+  const found = lyricsFromContent(content, extension === 'ttml' || extension === 'yrc' || extension === 'lrc' ? extension : 'txt', 'the song’s own lyric file')
+  return found.text ? found : null
+}
+
+async function lyricsOnline(target: SyncTarget): Promise<LyricSource | { missing: string }> {
+  const result = await window.electronAPI.findOnlineLyrics({ trackName: target.title, artistName: target.artist, duration: target.duration, audioPath: target.audioPath })
+  if (!result.found) return { missing: result.instrumental ? 'This song is marked instrumental — there is nothing to sync.' : result.message || 'No lyrics found online.' }
+  const source = result.source || 'online'
+  const found = result.ttmlLyrics ? lyricsFromContent(result.ttmlLyrics, 'ttml', source)
+    : result.syncedLyrics ? lyricsFromContent(result.syncedLyrics, 'lrc', source)
+      : lyricsFromContent(result.plainLyrics ?? '', 'txt', source)
+  return found.text ? found : { missing: 'The lyrics found online were empty.' }
+}
+
+function describeSource(source: LyricSource) {
+  if (!source.label) return ''
+  const timing = source.wordTimed ? (source.machine ? 'word-timed by an earlier AI sync' : 'word-timed by a person') : source.lines ? 'line-timed' : 'plain text'
+  return `From ${source.label} · ${source.text.split('\n').length} lines · ${timing}`
 }
 
 export function AiLyricSync({ target, onPickTarget, onSaved, flash }: { target: SyncTarget | null; onPickTarget: (target: SyncTarget) => void; onSaved: () => void; flash: (message: string) => void }) {
   const [environment, setEnvironment] = useState<LyricSyncEnvironment | null>(null)
-  const [model, setModel] = useState('base')
-  const [language, setLanguage] = useState('')
-  const [format, setFormat] = useState<'ttml' | 'lrc'>('ttml')
+  const [preferences, setPreferences] = useState(loadPreferences)
+  const { model, level, language, format, embed } = preferences
+  const choose = (patch: Partial<Preferences>) => setPreferences(current => { const next = { ...current, ...patch }; savePreferences(next); return next })
   const [lyrics, setLyrics] = useState('')
-  const [embed, setEmbed] = useState(true)
   const [overwrite, setOverwrite] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [status, setStatus] = useState('')
   const [percent, setPercent] = useState<number | null>(null)
   const [device, setDevice] = useState<{ name: string; note: string } | null>(null)
-  const [outcome, setOutcome] = useState<{ path?: string; words: number; lines: number; seconds?: number; mode?: string; language?: string; needsOverwrite?: boolean } | null>(null)
+  const [outcome, setOutcome] = useState<{ path?: string; needsOverwrite?: boolean } | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const startedAt = useRef(0)
   const pending = useRef<{ content: string; format: 'ttml' | 'lrc' } | null>(null)
-  // What the song's own lyric file said, so edits can be told apart from it.
-  const [source, setSource] = useState<{ text: string; lines: TimedLine[] | null }>({ text: '', lines: null })
+  // Where the lyrics came from, so edits can be told apart from them.
+  const [source, setSource] = useState<LyricSource>(EMPTY_SOURCE)
+  const [lookup, setLookup] = useState<{ busy: boolean; message: string }>({ busy: false, message: '' })
+  const lookupGeneration = useRef(0)
 
   useEffect(() => { void window.electronAPI.lyricSyncEnvironment().then(setEnvironment).catch(() => undefined) }, [])
 
-  // A new song brings its own lyrics, if it has any, ready to align.
+  const adopt = (found: LyricSource) => { setSource(found); setLyrics(found.text) }
+
+  const findOnline = async (song: SyncTarget) => {
+    const generation = ++lookupGeneration.current
+    setLookup({ busy: true, message: 'Looking the lyrics up online…' })
+    const found = await lyricsOnline(song).catch(() => ({ missing: 'The lyric services could not be reached.' }))
+    if (generation !== lookupGeneration.current) return
+    if ('missing' in found) setLookup({ busy: false, message: `${found.missing} Paste them below, or leave it empty to transcribe.` })
+    else { adopt(found); setLookup({ busy: false, message: '' }) }
+  }
+
+  // A new song brings its lyrics along: its own file first, else the best
+  // match online — nothing to copy and paste.
   useEffect(() => {
     let active = true
+    lookupGeneration.current += 1
     setOutcome(null); setPhase('idle'); setStatus(''); setPercent(null); setDevice(null)
-    void existingLyrics(target?.lyricPath ?? null).then(found => { if (active) { setSource(found); setLyrics(found.text) } })
+    adopt(EMPTY_SOURCE); setLookup({ busy: false, message: '' })
+    if (!target) return
+    void lyricsFromFile(target.lyricPath).then(found => {
+      if (!active) return
+      if (found) adopt(found)
+      else void findOnline(target)
+    })
     return () => { active = false }
   }, [target?.audioPath])
 
@@ -119,44 +199,52 @@ export function AiLyricSync({ target, onPickTarget, onSaved, flash }: { target: 
     const saved = await window.electronAPI.saveLyricFile(target.audioPath, content, chosen, { overwrite: replace, embed })
     if (saved.saved) {
       pending.current = null
-      setOutcome(current => ({ ...(current ?? { words: 0, lines: 0 }), path: saved.path, needsOverwrite: false }))
-      flash(`Word-synced lyrics saved beside ${target.title}${saved.embedded ? ', and embedded in the file' : ''}.`)
+      setOutcome({ path: saved.path, needsOverwrite: false })
+      flash(`${level === 'syllable' ? 'Syllable' : 'Word'}-synced lyrics saved beside ${target.title}${saved.embedded ? ', and embedded in the file' : ''}.`)
       onSaved()
       return true
     }
     if (saved.path && !replace) {
       // A lyric file is already there; keep the result and let the person decide.
       pending.current = { content, format: chosen }
-      setOutcome(current => ({ ...(current ?? { words: 0, lines: 0 }), path: saved.path, needsOverwrite: true }))
+      setOutcome({ path: saved.path, needsOverwrite: true })
       return true
     }
     setPhase('error'); setStatus(saved.message ?? 'The lyric file could not be saved.')
     return false
   }
 
+  const edited = lyrics.trim() !== source.text.trim()
+  const lines = !edited ? source.lines : null
+  const syllablesReady = Boolean(environment?.syllables)
+  const effectiveLevel: Level = level === 'syllable' && syllablesReady ? 'syllable' : 'word'
+
   const generate = async () => {
     if (!target || phase === 'running') return
     setPhase('running'); setOutcome(null); setPercent(null); setDevice(null); setElapsed(0)
     setStatus('Starting…')
     startedAt.current = Date.now()
-    // Line timings only still describe the text if it has not been edited.
-    const useLines = Boolean(source.lines && lyrics.trim() === source.text.trim())
+    // Timings only still describe the text if it has not been edited.
     const result = await window.electronAPI.startLyricSync({
-      audioPath: target.audioPath, model, language: language || null,
+      audioPath: target.audioPath, model, level: effectiveLevel, language: language || null,
       lyricsText: lyrics.trim() || null,
-      lyricsLines: useLines ? source.lines : null,
+      lyricsLines: lines,
     })
     if (!result.ok || !result.segments?.length) { setPhase('error'); setStatus(result.message ?? 'The sync produced nothing.'); return }
     try {
+      // The engine writes the files itself; the renderer's converter is only a
+      // fallback for an engine too old to send them.
       const document = fromAlignmentJson(JSON.stringify({ segments: result.segments }))
-      const content = format === 'ttml' ? exportLyricDocument(document) : exportLyricDocumentLrc(document)
+      const content = format === 'ttml' ? result.ttml ?? exportLyricDocument(document) : result.lrc ?? exportLyricDocumentLrc(document)
       const words = result.segments.reduce((sum, segment) => sum + segment.words.length, 0)
-      setOutcome({ words, lines: result.segments.length, seconds: result.seconds, mode: result.mode, language: result.language })
       setStatus('Saving beside the song…')
       const saved = await save(content, format, overwrite)
       if (!saved) return
       setPhase('done'); setPercent(100)
-      setStatus(`${result.mode === 'transcribe' ? 'Transcribed' : 'Aligned'} ${words} words over ${result.segments.length} lines on the ${result.device === 'cuda' ? 'GPU' : 'CPU'} in ${result.seconds}s.`)
+      const verb = result.mode === 'transcribe' ? 'Transcribed' : result.mode === 'from-words' ? `Kept the ${source.machine ? 'existing' : 'person-made'} timing of` : 'Aligned'
+      const stats = result.syllableStats ? ` · syllables: ${result.syllableStats.acoustic} words timed by ear, ${result.syllableStats.fallback} split by length` : ''
+      setStatus(`${verb} ${words} words over ${result.segments.length} lines${result.level === 'syllable' ? ', syllable by syllable,' : ''} on the ${result.device === 'cuda' ? 'GPU' : 'CPU'} in ${result.seconds}s${stats}.`)
+      if (result.note) setDevice(current => current ? { ...current, note: [current.note, result.note].filter(Boolean).join(' ') } : { name: result.device === 'cuda' ? 'GPU' : 'CPU', note: result.note ?? '' })
     } catch (error) {
       setPhase('error'); setStatus(error instanceof Error ? error.message : String(error))
     }
@@ -164,20 +252,24 @@ export function AiLyricSync({ target, onPickTarget, onSaved, flash }: { target: 
 
   const cancel = async () => { await window.electronAPI.cancelLyricSync(); setPhase('idle'); setStatus('Cancelled.'); setPercent(null) }
   const lineCount = lyrics.trim().split(/\r?\n/).filter(Boolean).length
-  const mode: 'align-lines' | 'align' | 'transcribe' = !lyrics.trim() ? 'transcribe' : source.lines && lyrics.trim() === source.text.trim() ? 'align-lines' : 'align'
+  const mode: 'from-words' | 'align-lines' | 'align' | 'transcribe' = !lyrics.trim() ? 'transcribe' : lines && source.wordTimed ? 'from-words' : lines ? 'align-lines' : 'align'
   const modelHint = MODELS.find(item => item.value === model)?.hint ?? ''
-  const modeSummary = mode === 'align-lines'
-    ? `Will time the words of ${lineCount} lines, each within its own line's moment — seconds, even on the CPU`
-    : mode === 'align'
-      ? `Will align ${lineCount} lines of plain text across the whole song — pick Small or larger; on the CPU this takes minutes`
-      : 'Will transcribe the vocals'
+  const madeBy = source.machine ? 'the earlier sync made' : 'a person made'
+  const modeSummary = {
+    'from-words': effectiveLevel === 'syllable' ? `Keeps the word timing ${madeBy} for ${lineCount} lines (checked against this recording) and adds syllables` : `Keeps the word timing ${madeBy} for ${lineCount} lines, checked against this recording`,
+    'align-lines': `Will time the words of ${lineCount} lines, each within its own line's moment — seconds, even on the CPU`,
+    align: `Will align ${lineCount} lines of plain text across the whole song — pick Small or larger; on the CPU this takes minutes`,
+    transcribe: 'Will transcribe the vocals',
+  }[mode]
+  const lyricsLabel = source.label && !edited ? describeSource(source) : edited && source.label ? 'Edited — the timing that came with them is dropped' : 'Lyrics'
+  const running = phase === 'running'
 
   return (
     <div className="tool-panel ai-sync">
       <div className="tool-panel-head">
         <div>
           <strong>Sync with AI</strong>
-          <span className="ai-sync-sub">stable-ts + faster-whisper, on this computer · nothing is uploaded</span>
+          <span className="ai-sync-sub">Lyric Studio engine · word or syllable timing for karaoke · on this computer, nothing is uploaded</span>
         </div>
         <span className={`chip ${environment?.ready ? (environment.gpus > 0 && environment.cudaRuntime ? 'high' : 'medium') : 'low'}`} title={environment?.message}>
           {!environment ? 'Checking…' : !environment.ready ? 'Setup needed' : environment.gpus > 0 && environment.cudaRuntime ? 'GPU ready' : 'CPU ready'}
@@ -186,48 +278,58 @@ export function AiLyricSync({ target, onPickTarget, onSaved, flash }: { target: 
       <div className="tool-panel-body ai-sync-body">
         {environment && !environment.ready && <p className="cookie-status bad">{environment.message}</p>}
         {environment?.ready && environment.gpus > 0 && !environment.cudaRuntime && <p className="settings-note" style={{ margin: 0 }}>Your GPU can make this several times faster once faster-whisper has its CUDA 12 libraries: <b>pip install nvidia-cublas-cu12 nvidia-cudnn-cu12</b>. Until then it runs on the CPU.</p>}
+        {environment?.ready && !environment.syllables && <p className="settings-note" style={{ margin: 0 }}>Syllable timing needs three more packages: <b>pip install torch transformers uroman</b> (or run Lyric Studio’s installer). Until then songs are synced word by word.</p>}
 
         <div className="ai-sync-song">
           {target ? <>
             <div><strong>{target.title}</strong><span>{target.artist ?? 'Unknown artist'}{target.duration ? ` · ${prettyTime(target.duration)}` : ''}</span><small title={target.audioPath}>{target.audioPath}</small></div>
           </> : <div><strong>No song chosen</strong><span>Press <b>AI sync</b> on any song in the table below, or pick a file.</span></div>}
-          <button className="ghost-button" disabled={phase === 'running'} onClick={() => void browse()}><Icon name="folder" size={14} /> Choose a file…</button>
+          <button className="ghost-button" disabled={running} onClick={() => void browse()}><Icon name="folder" size={14} /> Choose a file…</button>
         </div>
 
         <div className="ai-sync-grid">
-          <label><span>Model</span><select value={model} disabled={phase === 'running'} onChange={event => setModel(event.target.value)}>{MODELS.map(item => <option key={item.value} value={item.value}>{item.label} — {item.hint}</option>)}</select></label>
-          <label><span>Language</span><select value={language} disabled={phase === 'running'} onChange={event => setLanguage(event.target.value)}>{LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select></label>
-          <label><span>Save as</span><select value={format} disabled={phase === 'running'} onChange={event => setFormat(event.target.value as 'ttml' | 'lrc')}><option value="ttml">TTML — word by word in Lyrigen</option><option value="lrc">LRC — word-timed, for other players too</option></select></label>
+          <label><span>Sync level</span><select value={effectiveLevel} disabled={running} onChange={event => choose({ level: event.target.value as Level })}>
+            <option value="syllable" disabled={!syllablesReady}>Syllable — karaoke{syllablesReady ? '' : ' (needs setup)'}</option>
+            <option value="word">Word — quicker</option>
+          </select></label>
+          <label><span>Model</span><select value={model} disabled={running} onChange={event => choose({ model: event.target.value })}>{MODELS.map(item => <option key={item.value} value={item.value}>{item.label} — {item.hint}</option>)}</select></label>
+          <label><span>Language</span><select value={language} disabled={running} onChange={event => choose({ language: event.target.value })}>{LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select></label>
+          <label><span>Save as</span><select value={format} disabled={running} onChange={event => choose({ format: event.target.value as 'ttml' | 'lrc' })}><option value="ttml">TTML — {effectiveLevel === 'syllable' ? 'syllable' : 'word'} by {effectiveLevel === 'syllable' ? 'syllable' : 'word'} in Lyrigen</option><option value="lrc">LRC — {effectiveLevel}-timed, for other players too</option></select></label>
         </div>
 
-        <label className="ai-sync-lyrics">
-          <span>{mode === 'align-lines' ? 'Lyrics to align — from the song’s synced file; editing them drops its line timings' : mode === 'align' ? 'Lyrics to align — edit freely, one line per sung line' : 'Lyrics (optional) — paste them for much better accuracy'}</span>
-          <textarea value={lyrics} disabled={phase === 'running'} onChange={event => setLyrics(event.target.value)} placeholder={'Leave empty to let the model transcribe.\nPaste the real lyrics and it will align them instead — far more accurate for singing.'} spellCheck={false} />
-        </label>
+        <div className="ai-sync-lyrics">
+          <div className="ai-sync-lyrics-head">
+            <span className={source.label && !edited ? 'found' : ''}>{lookup.busy ? 'Looking the lyrics up online…' : lyricsLabel}</span>
+            <button className="text-link" disabled={!target || running || lookup.busy} onClick={() => { if (target) void findOnline(target) }}><Icon name="search" size={12} /> {source.label ? 'Search online again' : 'Find online'}</button>
+            {lyrics && <button className="text-link" disabled={running} onClick={() => { adopt(EMPTY_SOURCE); setLookup({ busy: false, message: '' }) }}>Clear</button>}
+          </div>
+          {lookup.message && !lookup.busy && <small className="ai-sync-note">{lookup.message}</small>}
+          <textarea value={lyrics} disabled={running || lookup.busy} onChange={event => setLyrics(event.target.value)} aria-label="Lyrics to sync" placeholder={'Lyrics are found by themselves when you pick a song.\nOr paste them here — one line per sung line. Leave empty to let the model transcribe.'} spellCheck={false} />
+        </div>
 
         <div className="toggle-list" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <label className="toggle" style={{ padding: '6px 10px' }}><input type="checkbox" checked={embed} onChange={event => setEmbed(event.target.checked)} /><span><strong>Also embed in the song file</strong></span></label>
+          <label className="toggle" style={{ padding: '6px 10px' }}><input type="checkbox" checked={embed} onChange={event => choose({ embed: event.target.checked })} /><span><strong>Also embed in the song file</strong></span></label>
           <label className="toggle" style={{ padding: '6px 10px' }}><input type="checkbox" checked={overwrite} onChange={event => setOverwrite(event.target.checked)} /><span><strong>Replace an existing lyric file</strong></span></label>
         </div>
 
         {(phase !== 'idle' || status) && <div className={`ai-sync-status ${phase}`}>
           <div className="ai-sync-status-line">
-            {phase === 'running' && <i className="ai-sync-spinner" aria-hidden="true" />}
+            {running && <i className="ai-sync-spinner" aria-hidden="true" />}
             <span>{status}</span>
             {device && <em className="chip" title={device.note}>{device.name}</em>}
-            {phase === 'running' && <small>{elapsed}s</small>}
+            {running && <small>{elapsed}s</small>}
           </div>
-          {phase === 'running' && <div className={`ai-sync-bar ${percent == null ? 'indeterminate' : ''}`}><b style={{ width: `${percent ?? 30}%` }} /></div>}
+          {running && <div className={`ai-sync-bar ${percent == null ? 'indeterminate' : ''}`}><b style={{ width: `${percent ?? 30}%` }} /></div>}
           {device?.note && <small className="ai-sync-note">{device.note}</small>}
           {outcome?.needsOverwrite && <p className="cookie-status bad" style={{ margin: 0 }}>A lyric file already exists at {outcome.path}. <button className="text-link" onClick={() => { if (pending.current) void save(pending.current.content, pending.current.format, true) }}>Replace it (the old one is backed up)</button></p>}
-          {outcome?.path && !outcome.needsOverwrite && <p className="cookie-status ok" style={{ margin: 0 }}>✓ Saved to {outcome.path}. Play the song to see it word by word — machine timing is good, not perfect, so the lyric editor is there for touch-ups.</p>}
+          {outcome?.path && !outcome.needsOverwrite && <p className="cookie-status ok" style={{ margin: 0 }}>✓ Saved to {outcome.path}. Play the song to see it {effectiveLevel === 'syllable' ? 'syllable by syllable' : 'word by word'} — machine timing is good, not perfect, so the lyric editor is there for touch-ups.</p>}
         </div>}
 
         <div className="ai-sync-actions">
           <small>{modeSummary} · {model} model ({modelHint})</small>
-          {phase === 'running'
+          {running
             ? <button className="ghost-button" onClick={() => void cancel()}><Icon name="close" size={14} /> Cancel</button>
-            : <button className="accent-button" disabled={!target || !environment?.ready} onClick={() => void generate()}><Icon name="spark" size={15} /> Generate synced lyrics</button>}
+            : <button className="accent-button" disabled={!target || !environment?.ready || lookup.busy} onClick={() => void generate()}><Icon name="spark" size={15} /> Generate synced lyrics</button>}
         </div>
       </div>
     </div>

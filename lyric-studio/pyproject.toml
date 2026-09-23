@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lyric-studio"
+version = "1.0.0"
+description = "Word- and syllable-timed lyrics (TTML / LRC) made on your own computer — for karaoke, Lyrigen, or any player."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "stable-ts>=2.17",
+  "faster-whisper>=1.0",
+  "transformers>=4.40",
+  "torch",
+  "uroman",
+  "regex",
+  "numpy",
+  "customtkinter>=5.2",
+]
+
+[project.optional-dependencies]
+# faster-whisper is built against CUDA 12; these ship its libraries as wheels,
+# so an NVIDIA GPU works whatever system CUDA toolkit is (or is not) installed.
+gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12", "nvidia-cuda-runtime-cu12"]
+
+[project.scripts]
+lyric-studio-cli = "lyricstudio.cli:main"
+
+[project.gui-scripts]
+lyric-studio = "lyricstudio.gui:main"
+
+[tool.setuptools]
+packages = ["lyricstudio"]

@@ -254,11 +254,15 @@
 .ai-sync-song strong { font-size: 14px; font-weight: 600; }
 .ai-sync-song span { color: #b3acb9; font-size: 11px; }
 .ai-sync-song small { overflow: hidden; color: #7e7786; font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.ai-sync-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ai-sync-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .ai-sync-grid label, .ai-sync-lyrics { display: grid; gap: 5px; }
 .ai-sync-grid label > span, .ai-sync-lyrics > span { color: #827a8b; font: 9px var(--mono); letter-spacing: .8px; text-transform: uppercase; }
 .ai-sync-grid select { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255, 255, 255, .05); color: #eee; font-size: 11.5px; }
 .ai-sync-grid select option { background: #211e2a; }
+.ai-sync-lyrics-head { display: flex; align-items: center; gap: 12px; }
+.ai-sync-lyrics-head > span { flex: 1; min-width: 0; overflow: hidden; color: #827a8b; font: 9px var(--mono); letter-spacing: .8px; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.ai-sync-lyrics-head > span.found { color: #9ad3bf; }
+.ai-sync-lyrics-head .text-link:disabled { opacity: .45; pointer-events: none; }
 .ai-sync-lyrics textarea { min-height: 130px; max-height: 320px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .04); color: #e6e0ea; font-family: inherit; font-size: 12.5px; line-height: 1.65; resize: vertical; }
 .ai-sync-lyrics textarea:focus-visible, .ai-sync-grid select:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 .ai-sync-status { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .03); }
@@ -276,4 +280,5 @@
 @keyframes ai-sync-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .ai-sync-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .ai-sync-actions small { color: #8a8391; font-size: 10px; }
+@media (max-width: 1100px) { .ai-sync-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .ai-sync-grid { grid-template-columns: 1fr; } }

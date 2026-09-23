@@ -290,21 +290,30 @@ interface LyricSyncEnvironment {
   python: string | null
   pythonVersion: string | null
   packages: { stableTs: string | null; fasterWhisper: string | null }
+  /** torch, transformers and uroman — what syllable timing needs on top. */
+  syllables: boolean
   gpus: number
   cudaRuntime: boolean
   ready: boolean
   message: string
 }
-interface LyricSyncRequest { audioPath: string; model: string; language?: string | null; lyricsText?: string | null; lyricsLines?: Array<{ text: string; start: number; end: number | null }> | null; device?: 'auto' | 'cuda' | 'cpu' }
+type LyricSyncWord = { word: string; start: number; end: number }
+interface LyricSyncRequest { audioPath: string; model: string; level?: 'word' | 'syllable'; language?: string | null; lyricsText?: string | null; lyricsLines?: Array<{ text: string; start: number; end: number | null; words?: LyricSyncWord[] }> | null; device?: 'auto' | 'cuda' | 'cpu' }
 interface LyricSyncEvent { event: 'status' | 'device' | 'progress'; stage?: string; message?: string; device?: string; compute?: string; note?: string; percent?: number }
 interface LyricSyncResult {
   ok: boolean
   message?: string
-  mode?: 'align-lines' | 'align' | 'transcribe'
+  mode?: 'from-words' | 'align-lines' | 'align' | 'transcribe'
+  level?: 'word' | 'syllable'
   language?: string
   device?: string
   seconds?: number
-  segments?: Array<{ text: string; start: number; end: number; words: Array<{ word: string; start: number; end: number }> }>
+  note?: string
+  syllableStats?: { acoustic: number; fallback: number } | null
+  segments?: Array<{ text: string; start: number; end: number; words: Array<LyricSyncWord & { syllables?: Array<{ text: string; start: number; end: number }> }> }>
+  /** The finished files, made by the engine — what Lyric Studio itself saves. */
+  ttml?: string
+  lrc?: string
 }
 interface PotStatus { folder: string | null; plugin: boolean; running: boolean }
 interface JsRuntimeStatus { available: boolean; kind: 'deno' | 'node' | 'bun' | 'electron' | null; path: string | null }

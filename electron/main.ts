@@ -132,6 +132,26 @@ function getStateStore() {
   return stateStore
 }
 
+/**
+ * A file or folder picker that opens where the last one of its kind left off.
+ *
+ * Without a defaultPath Windows opens every picker in Downloads (or wherever it
+ * last guessed), so choosing a song from C:\musick meant walking back there
+ * every single time. Each kind of picker keeps its own folder.
+ */
+async function showOpenDialogRemembering(kind: string, options: Electron.OpenDialogOptions) {
+  const folders = (getStateStore().get().settings.pickerFolders ?? {}) as Record<string, string>
+  const remembered = folders[kind]
+  const defaultPath = options.defaultPath || (remembered && fs.existsSync(remembered) ? remembered : undefined)
+  const result = await dialog.showOpenDialog({ ...options, defaultPath })
+  const chosen = result.filePaths[0]
+  if (!result.canceled && chosen) {
+    const folder = options.properties?.includes('openDirectory') ? chosen : path.dirname(chosen)
+    getStateStore().update(state => { state.settings = { ...state.settings, pickerFolders: { ...folders, [kind]: folder } } })
+  }
+  return result
+}
+
 function withStoredTrackState(items: LibraryTrack[]) {
   const state = getStateStore().get()
   const playCounts = new Map<string, number>()
@@ -804,7 +824,7 @@ ipcMain.handle('enqueue-upgrades', (_event, candidates: UpgradeCandidate[]) => g
 // the consent for Lyrigen to run a service it did not install.
 ipcMain.handle('start-pot-provider', () => startPotProvider())
 ipcMain.handle('choose-tools-folder', async () => {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Folder containing yt-dlp.exe and ffmpeg.exe' })
+  const result = await showOpenDialogRemembering('tools', { properties: ['openDirectory'], title: 'Folder containing yt-dlp.exe and ffmpeg.exe' })
   if (result.canceled || !result.filePaths[0]) return toolsStatus()
   getDownloader().updateSettings({ toolsFolder: result.filePaths[0] })
   setToolsFolder(result.filePaths[0])
@@ -855,7 +875,7 @@ ipcMain.handle('preview-download-url', async (_event, url: string) => {
 ipcMain.handle('stop-preview', () => { stopPreview(); return { playing: isPreviewing() } })
 
 ipcMain.handle('choose-organize-sources', async () => {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'multiSelections'], title: 'Folders to organise' })
+  const result = await showOpenDialogRemembering('library', { properties: ['openDirectory', 'multiSelections'], title: 'Folders to organise' })
   return result.canceled ? [] : result.filePaths
 })
 ipcMain.handle('plan-organize', (_event, inputs: string[], options: { destination: string; pathTemplate: string; includeCleanFiles: boolean }) =>
@@ -932,7 +952,7 @@ ipcMain.handle('fetch-lyrics-for-tracks', async (_event, tracks: Array<{ id: str
 })
 
 ipcMain.handle('select-library', async (): Promise<LibraryScanResult> => {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+  const result = await showOpenDialogRemembering('library', { properties: ['openDirectory'] })
   if (result.canceled || result.filePaths.length === 0) {
     return scanAllLibraries(smokeLibraryRoot ? [smokeLibraryRoot] : readSavedLibraryRoots())
   }
@@ -958,7 +978,7 @@ ipcMain.handle('rescan-library', () => scanAllLibraries(smokeLibraryRoot ? [smok
 
 ipcMain.handle('get-library-roots', () => getStateStore().get().libraryRoots)
 ipcMain.handle('add-library-root', async (): Promise<LibraryScanResult> => {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+  const result = await showOpenDialogRemembering('library', { properties: ['openDirectory'] })
   if (result.canceled || !result.filePaths[0]) return scanAllLibraries(readSavedLibraryRoots())
   saveLibraryRoot(result.filePaths[0])
   watchLibrary(result.filePaths[0])
@@ -1254,7 +1274,7 @@ ipcMain.handle('inspect-cookies-file', (_event, filePath: string) => inspectCook
 
 /** Pick a cookies.txt, so nobody has to paste a path by hand. */
 ipcMain.handle('choose-cookies-file', async () => {
-  const result = await dialog.showOpenDialog({
+  const result = await showOpenDialogRemembering('cookies', {
     title: 'Choose your exported cookies.txt',
     properties: ['openFile'],
     filters: [{ name: 'Cookies', extensions: ['txt'] }],
@@ -1375,7 +1395,7 @@ ipcMain.handle('search-catalog', async (_event, request: { title?: string; artis
 })
 
 ipcMain.handle('select-audio-files', async () => {
-  const result = await dialog.showOpenDialog({
+  const result = await showOpenDialogRemembering('audio', {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Audio files', extensions: [...audioExtensions].map(extension => extension.slice(1)) }],
   })
@@ -1383,7 +1403,7 @@ ipcMain.handle('select-audio-files', async () => {
 })
 
 ipcMain.handle('select-audio-folder', async () => {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+  const result = await showOpenDialogRemembering('audio', { properties: ['openDirectory'] })
   if (result.canceled || !result.filePaths[0]) return []
   const files = await collectLibraryFiles(result.filePaths[0])
   return files.filter(filePath => audioExtensions.has(path.extname(filePath).toLocaleLowerCase()))
@@ -1662,7 +1682,7 @@ ipcMain.handle('save-ttml', async (_event, audioPath: string, ttmlText: string, 
 })
 
 ipcMain.handle('choose-lrc-files', async (): Promise<Array<{ path: string; name: string; content: string }>> => {
-  const result = await dialog.showOpenDialog({
+  const result = await showOpenDialogRemembering('lyrics', {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'LRC lyrics', extensions: ['lrc'] }],
   })
@@ -1695,7 +1715,7 @@ ipcMain.handle('save-ttml-file', async (_event, lrcPath: string, ttmlText: strin
 })
 
 ipcMain.handle('choose-alignment-json', async (): Promise<{ path: string; name: string; content: string } | null> => {
-  const result = await dialog.showOpenDialog({
+  const result = await showOpenDialogRemembering('lyrics', {
     properties: ['openFile'],
     filters: [{ name: 'Whisper / stable-ts alignment JSON', extensions: ['json'] }],
   })
