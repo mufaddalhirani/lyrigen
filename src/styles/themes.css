@@ -166,3 +166,40 @@ html[data-lyric-motion="none"] .synced-lyrics * {
   transition: none !important;
   animation: none !important;
 }
+
+/* ---------- brat ---------- */
+/*
+ * The brat album cover: flat lime (#8ace00), black Arial Narrow, lowercase,
+ * stretched tall and softened with a slight blur, as if printed too small and
+ * scaled up. The app keeps its dark chrome with a lime accent; the player is
+ * where the full look lives. The blur is on the whole stage, once — a
+ * per-line filter would stack through the renderer's nested elements.
+ */
+html[data-theme="brat"] {
+  --accent: #8ace00;
+  --accent-strong: #9be000;
+  --brat: #8ace00;
+}
+html[data-theme="brat"] .accent-button { background: var(--brat); color: #000; box-shadow: none; }
+html[data-theme="brat"] .player-shell { background: var(--brat) !important; color: #000; }
+html[data-theme="brat"] .player-shell .background-veil,
+html[data-theme="brat"] .player-shell .cover-bloom,
+html[data-theme="brat"] .player-shell canvas { display: none !important; }
+html[data-theme="brat"] .player-shell :where(h1, h2, h3, p, span, small, strong, button) { color: #000; }
+html[data-theme="brat"] .lyrics-column { background: transparent !important; border-color: transparent !important; box-shadow: none !important; backdrop-filter: none !important; }
+html[data-theme="brat"] .synced-lyrics {
+  --amll-lp-color: #000;
+  --amll-lp-hover-bg-color: transparent;
+  font-family: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif !important;
+  text-transform: lowercase;
+  letter-spacing: -.02em;
+  filter: blur(.7px);
+}
+html[data-theme="brat"] .synced-lyrics * { font-family: inherit !important; text-shadow: none !important; font-weight: 400 !important; }
+/* Arial Narrow ships with Office, not Windows. Squashing the stage gives the
+   same narrow letters with any Arial; it is made wider by the same factor so
+   lines still wrap at the panel's edge. */
+html[data-theme="brat"] .synced-lyrics-stage { width: 122% !important; transform: scaleX(.82); transform-origin: left center; }
+html[data-theme="brat"] .now-playing-label { color: #000; }
+html[data-theme="brat"] .playing-dot { background: #000 !important; }
+html[data-theme="brat"] .synced-lyrics [class*="lyricMainLine"] { transform-origin: left center; }

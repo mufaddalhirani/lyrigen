@@ -23,6 +23,7 @@ export const THEMES: ThemeOption[] = [
   { id: 'ember', label: 'Ember', description: 'Warm amber on deep brown, low glare for night listening.' },
   { id: 'paper', label: 'Paper', description: 'Light theme. Ink on off-white, for bright rooms.' },
   { id: 'monochrome', label: 'Monochrome', description: 'Greyscale and quiet. No colour, minimal motion.' },
+  { id: 'brat', label: 'brat', description: 'Lime green, black lowercase lyrics in a squashed, slightly blurry type — the brat album look.' },
 ]
 
 export const FONTS: ThemeOption[] = [
