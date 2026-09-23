@@ -42,7 +42,7 @@ Your music, on your computer. No account, no subscription, no telemetry.
 ## Install
 
 1. **Download** the latest version from **[Releases](https://github.com/mufaddalhirani/lyrigen/releases/latest)**:
-   - `Lyrigen Setup 2.5.0.exe` — installs with a Start-menu shortcut and an uninstaller (recommended), or
+   - `Lyrigen.Setup.2.5.0.exe` — installs with a Start-menu shortcut and an uninstaller (recommended), or
    - `Lyrigen-Portable-2.5.0.exe` — a single file that runs from anywhere, no install.
 2. **Run it.** Windows may show *"Windows protected your PC"* because the app isn't code-signed yet. Click **More info → Run anyway**.
 3. **Choose your music folder.** Lyrigen scans every folder beneath it and remembers it. That's it.
