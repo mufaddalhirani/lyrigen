@@ -15,3 +15,6 @@ __pycache__/
 *.pyc
 lyric-studio/build/
 *.egg-info/
+
+# Private session handoff notes (local paths)
+HANDOFF.md
