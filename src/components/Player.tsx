@@ -610,7 +610,7 @@ export function Player({
             {lyricLines.length > 0 ? (
               timing === 'unsynced' ? <div className="plain-lyrics">{lyricLines.map((line, index) => <p key={index}>{line.words.map(word => word.word).join('')}</p>)}</div> :
               visualMode === 'brat' ? <BratLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} reducedMotion={reducedMotion} title={displayTitle} onSeek={seek} /> :
-              <SyncedLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} visible={visualMode !== 'cover' && visualMode !== 'vinyl'} reducedMotion={reducedMotion} onSeek={seek} />
+              <SyncedLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} visible={visualMode !== 'cover' && visualMode !== 'vinyl'} reducedMotion={reducedMotion} onSeek={seek} analyser={analyserRef} />
             ) : (
               <div className="lyrics-empty"><div className="empty-quote">“</div><h3>{lookupBusy ? 'Searching for lyrics…' : 'No synced lyrics yet'}</h3><p>Lyrigen checks matching local files first, then Unison (exact match for YouTube downloads), the AMLL TTML DB and LRCLIB.</p><button className="inline-glass-button" disabled={lookupBusy} onClick={() => void findOnlineLyrics()}>{lookupBusy ? 'Searching…' : 'Try online again'}</button><button className="inline-glass-button" onClick={() => setFinderOpen(true)}>Browse lyrics…</button></div>
             )}
