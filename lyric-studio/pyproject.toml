@@ -8,7 +8,6 @@ version = "1.0.0"
 description = "Word- and syllable-timed lyrics (TTML / LRC) made on your own computer — for karaoke, Lyrigen, or any player."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
 dependencies = [
   "stable-ts>=2.17",
   "faster-whisper>=1.0",
