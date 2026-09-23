@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { type LyricLine } from '@applemusic-like-lyrics/lyric'
 import { BratLyrics } from './BratLyrics'
+import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
 import { MaterialIcon } from './common/MaterialIcon'
@@ -153,6 +154,7 @@ export function Player({
 }: PlayerProps) {
   const {
     audioRef,
+    analyserRef,
     isPlaying,
     currentTimeMs,
     durationMs,
@@ -217,6 +219,8 @@ export function Player({
   const [timing, setTiming] = useState<LyricDocument['timing']>('word')
   const [reducedMotion, setReducedMotion] = useState(() => localStorage.getItem('lyrigen-reduced-motion') === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches)
   const lookupGeneration = useRef(0)
+  const [fluid, setFluid] = useState<FluidSettings>(loadFluidSettings)
+  const changeFluid = (patch: Partial<FluidSettings>) => setFluid(current => { const next = { ...current, ...patch }; saveFluidSettings(next); return next })
   const [visualMode, setVisualMode] = useState<VisualMode>(() => {
     const saved = localStorage.getItem('lyrigen-visual-mode-v1') as VisualMode | null
     return VISUAL_MODE_OPTIONS.some(option => option.value === saved) ? saved! : 'balanced'
@@ -381,6 +385,16 @@ export function Player({
     return () => { cleanupCommands(); cleanupMini() }
   }, [handleNext, handlePrevious, toggleMute, togglePlay])
 
+  // Windows' media overlay only takes http, data or blob artwork; a file://
+  // cover was rejected (with a console error) on every track.
+  const [sessionArtwork, setSessionArtwork] = useState('')
+  useEffect(() => {
+    let active = true
+    setSessionArtwork(coverUrl.startsWith('data:') ? coverUrl : '')
+    if (coverUrl && !coverUrl.startsWith('data:')) void window.electronAPI.getArtworkData(coverUrl, 256).then(data => { if (active) setSessionArtwork(data ?? '') })
+    return () => { active = false }
+  }, [coverUrl])
+
   useEffect(() => {
     const displayTitle = metadata?.title || title
     window.electronAPI.updatePlayerState({ playing: isPlaying, title: displayTitle })
@@ -389,11 +403,11 @@ export function Player({
         title: displayTitle,
         artist: metadata?.artist || 'Unknown Artist',
         album: metadata?.album || playlist[currentIndex]?.album,
-        artwork: coverUrl ? [{ src: coverUrl }] : [],
+        artwork: sessionArtwork ? [{ src: sessionArtwork }] : [],
       })
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
     }
-  }, [coverUrl, currentIndex, isPlaying, metadata, playlist, title])
+  }, [sessionArtwork, currentIndex, isPlaying, metadata, playlist, title])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -558,10 +572,11 @@ export function Player({
   }
 
   return (
-    <div className={`app-shell player-shell visual-mode-${visualMode} ${isPlaying ? 'is-playing' : 'is-paused'} ${reducedMotion ? 'reduce-motion' : ''}`} ref={setVisualTarget}>
+    <div className={`app-shell player-shell visual-mode-${visualMode} ${fluid.enabled && coverUrl && visualMode !== 'brat' ? 'has-fluid' : ''} ${isPlaying ? 'is-playing' : 'is-paused'} ${reducedMotion ? 'reduce-motion' : ''}`} ref={setVisualTarget}>
       <div className="player-background">
         {videoEnabled && videoUrl && <video ref={videoRef} className="matched-video" src={videoUrl} muted playsInline />}
-        {coverUrl && <img src={coverUrl} className="cover-bloom" alt="" />}
+        {coverUrl && fluid.enabled && visualMode !== 'brat' ? <FluidBackground coverUrl={coverUrl} settings={fluid} playing={isPlaying} reducedMotion={reducedMotion} analyser={analyserRef} />
+          : coverUrl && <img src={coverUrl} className="cover-bloom" alt="" />}
         <div className="reactive-wave wave-a" /><div className="reactive-wave wave-b" />
         <div className="background-veil" />
       </div>
@@ -615,6 +630,14 @@ export function Player({
             <button className={karaokeMode ? 'setting-toggle on' : 'setting-toggle'} onClick={toggleKaraokeMode}><span><strong>Center vocal reduction</strong><small>Local stereo cancellation; results vary by mix</small></span><i /></button>
             <button className={preservePitch ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changePreservePitch(!preservePitch)}><span><strong>Preserve pitch</strong><small>Keep voices natural when speed changes</small></span><i /></button>
             {videoPath && <button className={videoEnabled ? 'setting-toggle on' : 'setting-toggle'} onClick={() => setVideoEnabled(value => !value)}><span><strong>Matched local video</strong><small>Use the same-name video as the backdrop</small></span><i /></button>}
+          </div>
+          <div className="setting-section fluid-settings">
+            <button className={fluid.enabled ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changeFluid({ enabled: !fluid.enabled })}><span><strong>Fluid background</strong><small>The cover, blurred and slowly warped — like Apple Music</small></span><i /></button>
+            {fluid.enabled && <>
+              <button className={fluid.reactive ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changeFluid({ reactive: !fluid.reactive })}><span><strong>Pulse with the beat</strong><small>Flows faster and swells a little on each kick</small></span><i /></button>
+              {([['opacity', 'Strength', 0.2, 1, 0.05], ['warp', 'Warp', 0, 3, 0.1], ['speed', 'Flow speed', 0, 3, 0.1], ['saturation', 'Colour', 0.5, 3, 0.1]] as const).map(([key, label, min, max, step]) =>
+                <label key={key} className="fluid-slider"><span>{label}<b>{fluid[key].toFixed(key === 'opacity' ? 2 : 1)}</b></span><input type="range" min={min} max={max} step={step} value={fluid[key]} onChange={event => changeFluid({ [key]: Number(event.target.value) })} /></label>)}
+            </>}
           </div>
           <div className="setting-section compact-settings"><div><span>Lyric timing</span><div className="segmented"><button onClick={() => setLyricOffsetMs(value => { localStorage.setItem(`lyrigen-offset:${audioPath}`, String(value - 50)); return value - 50 })}>−50</button><strong>{lyricOffsetMs} ms</strong><button onClick={() => setLyricOffsetMs(value => { localStorage.setItem(`lyrigen-offset:${audioPath}`, String(value + 50)); return value + 50 })}>+50</button></div></div><div><span>A–B loop</span><div className="segmented"><button onClick={markLoopStart}>A {loopStartMs === null ? '—' : formatTime(loopStartMs)}</button><button onClick={markLoopEnd} disabled={loopStartMs === null}>B {loopEndMs === null ? '—' : formatTime(loopEndMs)}</button><button onClick={clearLoop}>Clear</button></div></div></div>
           <div className="setting-section speed-dial"><div className="speed-dial-head"><span>Speed dial</span><strong>{playbackRate.toFixed(2)}×</strong></div><input type="range" min={0.5} max={2} step={0.05} value={playbackRate} onChange={event => changePlaybackRate(Number(event.target.value))} /><div className="speed-dial-labels"><small>0.5×</small><small>Natural</small><small>2×</small></div></div>

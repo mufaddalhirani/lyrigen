@@ -12,7 +12,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import crypto from 'node:crypto'
 import { MetadataFiles, readOverlay } from './metadata-files'
 import { createRateLimiter, mapLimited, matchScore, cleanTitle } from './catalog'
@@ -1420,6 +1420,22 @@ ipcMain.handle('read-file', async (_event, filePath: string) => {
 
 ipcMain.handle('get-media-url', (_event, filePath: string) => pathToFileURL(filePath).toString())
 ipcMain.handle('get-artwork-url', (_event, filePath: string, size: number) => getThumbnailUrl(filePath, size))
+/**
+ * A cover as a small data URL. WebGL refuses file:// images (they count as
+ * another origin and would taint the texture), and the fluid background only
+ * needs a thumbnail, since it blurs the picture to 128 px anyway.
+ */
+ipcMain.handle('get-artwork-data', (_event, source: string, size = 256) => {
+  try {
+    if (source.startsWith('data:')) return source
+    const filePath = source.startsWith('file:') ? fileURLToPath(source) : source
+    const image = nativeImage.createFromPath(filePath)
+    if (image.isEmpty()) return null
+    return image.resize({ width: Math.min(512, Math.max(32, size)), quality: 'good' }).toDataURL()
+  } catch {
+    return null
+  }
+})
 
 /**
  * The colour of a cover, for Spotify-style gradients behind the music.

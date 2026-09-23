@@ -444,6 +444,8 @@ export function useAudioPlayer(visualsEnabled = true) {
 
   return {
     audioRef,
+    /** The analyser after EQ and genre mode, for visuals that react to the music. */
+    analyserRef,
     isPlaying,
     currentTimeMs,
     durationMs,

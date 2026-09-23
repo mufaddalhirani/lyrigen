@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath: string) => ipcRenderer.invoke('read-file', filePath),
   getMediaUrl: (filePath: string) => ipcRenderer.invoke('get-media-url', filePath),
   getArtworkUrl: (filePath: string, size: number) => ipcRenderer.invoke('get-artwork-url', filePath, size),
+  getArtworkData: (source: string, size?: number) => ipcRenderer.invoke('get-artwork-data', source, size),
   getAudioMetadata: (filePath: string) => ipcRenderer.invoke('get-audio-metadata', filePath),
   selectAudioFiles: () => ipcRenderer.invoke('select-audio-files'),
   selectAudioFolder: () => ipcRenderer.invoke('select-audio-folder'),

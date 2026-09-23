@@ -535,6 +535,7 @@ interface ElectronAPI {
   onLibraryUpdated: (callback: (result: LibraryScanResult) => void) => () => void
   onScanProgress: (callback: (progress: { completed: number; total: number; phase: 'scanning' | 'complete' | 'error'; rootPath?: string }) => void) => () => void
   getArtworkUrl: (filePath: string, size: number) => Promise<string | null>
+  getArtworkData: (source: string, size?: number) => Promise<string | null>
   getToolsStatus: () => Promise<ToolsStatus>
   chooseToolsFolder: () => Promise<ToolsStatus>
   updateYtDlp: () => Promise<{ ok: boolean; message: string }>
