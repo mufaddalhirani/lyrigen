@@ -56,5 +56,5 @@ export function recallView(view: View): ViewMemory {
 export function recallLastView(): View | null {
   const last = read().lastView
   // Tool screens are transient; reopening straight into one is disorienting.
-  return last && !['metadata', 'downloads', 'organizer', 'lyrics'].includes(last) ? last : null
+  return last && !['metadata', 'downloads', 'organizer', 'lyrics', 'dj'].includes(last) ? last : null
 }

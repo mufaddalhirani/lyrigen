@@ -3,16 +3,14 @@
 import { useState } from 'react'
 import { Icon } from '../components/common/Icon'
 import { LrcConverter } from '../components/LrcConverter'
-import { DjPanel } from '../components/DjPanel'
 import { applyAppearance, loadAppearance, FONTS, LYRIC_MOTIONS, THEMES, type ThemeOption } from '../lib/themes'
 
-type Section = 'appearance' | 'sound' | 'lyrics' | 'dj'
+type Section = 'appearance' | 'sound' | 'lyrics'
 
 const SECTIONS: Array<{ id: Section; label: string; blurb: string }> = [
   { id: 'appearance', label: 'Appearance', blurb: 'Theme, type and how the lyrics move' },
   { id: 'sound', label: 'Sound', blurb: 'What each control in the player actually does' },
   { id: 'lyrics', label: 'Lyric tools', blurb: 'Convert and align lyric files' },
-  { id: 'dj', label: 'Mixer', blurb: 'Two decks and a crossfader' },
 ]
 
 /** One row of mutually exclusive appearance choices. */
@@ -50,7 +48,7 @@ const SOUND_GUIDE: Array<{ title: string; detail: string }> = [
   { title: 'A–B loop', detail: 'Mark two points and the section repeats — for learning a part, or sitting inside a passage you like.' },
 ]
 
-export function SoundLab({ library }: { library: LibraryTrack[] }) {
+export function SoundLab() {
   const [section, setSection] = useState<Section>('appearance')
   const [appearance, setAppearance] = useState(loadAppearance)
   const update = (patch: Partial<typeof appearance>) => {
@@ -112,17 +110,6 @@ export function SoundLab({ library }: { library: LibraryTrack[] }) {
             <p>Turn a line-synced LRC into an Apple-style TTML with estimated word spans. Useful when a song only has line timing and you want the word-by-word view.</p>
           </div>
           <LrcConverter />
-        </div>
-      )}
-
-      {section === 'dj' && (
-        <div className="appearance-panel">
-          <div className="appearance-head">
-            <span className="kicker">MIXER</span>
-            <h4>Two decks</h4>
-            <p>Load a track onto each deck, match them by ear with the speed sliders, and ride the crossfader. Runs separately from the player, so your queue is untouched.</p>
-          </div>
-          <DjPanel library={library} />
         </div>
       )}
 

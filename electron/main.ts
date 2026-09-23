@@ -21,7 +21,7 @@ import { configureGraphics, reportGraphicsStatus } from './graphics'
 import { getThumbnailUrl, pruneThumbnailCache } from './artwork-cache'
 import { Downloader, songIdentity, type UpgradeCandidate, type DownloadOptions, type DownloadSettings, type OrganizeApplyOptions, type OrganizePlanItem, type SongMetadata } from './downloader'
 import { fetchLyricCandidate, findBestLyrics, lyricExtension, retimeLyrics, searchLyricCandidates, type LyricCandidate, type LyricLookupRequest } from './lyrics-sources'
-import { checkDownloadQuality, inspectCookiesFile, isPreviewing, potStatus, previewUrl, setPotProviderFolder, setToolsFolder, startPotProvider, stopPotProvider, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
+import { checkDownloadQuality, ffmpegLocation, inspectCookiesFile, isPreviewing, potStatus, previewUrl, run, setPotProviderFolder, setToolsFolder, startPotProvider, stopPotProvider, stopPreview, toolsStatus, updateYtDlp } from './media-tools'
 import { cancelLyricSync, lyricSyncEnvironment, runLyricSync, type LyricSyncRequest } from './lyric-sync'
 import { setBetterLyricsApiKey } from './lyrics-sources'
 import { PATH_PRESETS, primaryArtist } from './song-naming'
@@ -911,6 +911,51 @@ ipcMain.handle('fetch-lyric-candidate', async (_event, candidate: LyricCandidate
 ipcMain.handle('lyric-sync-environment', (_event, refresh?: boolean) => lyricSyncEnvironment(Boolean(refresh)))
 ipcMain.handle('lyric-sync-start', (_event, request: LyricSyncRequest) => runLyricSync(request, event => win?.webContents.send('lyric-sync-event', event)))
 ipcMain.handle('lyric-sync-cancel', () => cancelLyricSync())
+
+// ---- DJ ---------------------------------------------------------------------
+
+/** The raw bytes of a song, for the DJ's beat and waveform analysis. Audio files only. */
+ipcMain.handle('read-audio-bytes', async (_event, filePath: string) => {
+  try {
+    if (!audioExtensions.has(path.extname(filePath).toLocaleLowerCase())) return null
+    const stat = await fs.promises.stat(filePath)
+    if (stat.size > 400 * 1024 * 1024) return null
+    return new Uint8Array(await fs.promises.readFile(filePath))
+  } catch {
+    return null
+  }
+})
+
+/**
+ * Saves a recorded mix. The recorder makes WebM/Opus; with ffmpeg around it is
+ * repackaged, untouched, as an .opus file every player (and Lyrigen) reads.
+ */
+ipcMain.handle('save-dj-recording', async (_event, bytes: Uint8Array) => {
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.')
+  const folder = path.join(app.getPath('music'), 'Lyrigen Mixes')
+  await fs.promises.mkdir(folder, { recursive: true }).catch(() => undefined)
+  const ffmpegDir = ffmpegLocation()
+  const extension = ffmpegDir ? 'opus' : 'webm'
+  const result = await dialog.showSaveDialog({
+    title: 'Save your mix',
+    defaultPath: path.join(folder, `Lyrigen mix ${stamp}.${extension}`),
+    filters: [{ name: ffmpegDir ? 'Opus audio' : 'WebM audio', extensions: [extension] }],
+  })
+  if (result.canceled || !result.filePath) return { saved: false, message: 'Not saved.' }
+  try {
+    if (!ffmpegDir) { await fs.promises.writeFile(result.filePath, bytes); return { saved: true, path: result.filePath } }
+    const temporary = path.join(app.getPath('temp'), `lyrigen-mix-${Date.now()}.webm`)
+    await fs.promises.writeFile(temporary, bytes)
+    const ffmpeg = path.join(ffmpegDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    const converted = await run(ffmpeg, ['-y', '-v', 'error', '-i', temporary, '-c:a', 'copy', result.filePath], { timeoutMs: 120_000 })
+    await fs.promises.rm(temporary, { force: true })
+    if (converted.code !== 0) { await fs.promises.writeFile(result.filePath.replace(/\.opus$/i, '.webm'), bytes); return { saved: true, path: result.filePath.replace(/\.opus$/i, '.webm') } }
+    return { saved: true, path: result.filePath }
+  } catch (error) {
+    return { saved: false, message: error instanceof Error ? error.message : String(error) }
+  }
+})
+
 
 ipcMain.handle('save-lyric-file', async (_event, audioPath: string, content: string, format: 'ttml' | 'lrc' | 'plain', options?: { overwrite?: boolean; embed?: boolean }) => {
   try {

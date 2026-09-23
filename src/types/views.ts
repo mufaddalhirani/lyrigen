@@ -4,7 +4,7 @@
 export type View =
   | 'metadata' | 'folders' | 'home' | 'library' | 'albums' | 'artists'
   | 'genres' | 'playlists' | 'smart' | 'listening' | 'discover' | 'sound'
-  | 'downloads' | 'organizer' | 'lyrics' | 'settings'
+  | 'downloads' | 'organizer' | 'lyrics' | 'settings' | 'dj'
 
 /** Whether a collection renders as rows or as cover cards. */
 export type LibraryMode = 'list' | 'grid'

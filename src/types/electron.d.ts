@@ -536,6 +536,8 @@ interface ElectronAPI {
   onScanProgress: (callback: (progress: { completed: number; total: number; phase: 'scanning' | 'complete' | 'error'; rootPath?: string }) => void) => () => void
   getArtworkUrl: (filePath: string, size: number) => Promise<string | null>
   getArtworkData: (source: string, size?: number) => Promise<string | null>
+  readAudioBytes: (filePath: string) => Promise<Uint8Array | null>
+  saveDjRecording: (bytes: Uint8Array) => Promise<{ saved: boolean; path?: string; message?: string }>
   getToolsStatus: () => Promise<ToolsStatus>
   chooseToolsFolder: () => Promise<ToolsStatus>
   updateYtDlp: () => Promise<{ ok: boolean; message: string }>

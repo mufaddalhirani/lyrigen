@@ -418,10 +418,18 @@ export function useAudioPlayer(visualsEnabled = true) {
 
   const handlePlay = useCallback(() => {
     setIsPlaying(true)
+    // The DJ decks stop when the player starts, and the other way round.
+    window.dispatchEvent(new Event('lyrigen:player-playing'))
     ensureAudioAnalysis().catch(console.error)
     if (animationRef.current) clearTimeout(animationRef.current)
     animationRef.current = setTimeout(updateFrame, 100)
   }, [ensureAudioAnalysis, updateFrame])
+
+  useEffect(() => {
+    const stop = () => audioRef.current?.pause()
+    window.addEventListener('lyrigen:dj-playing', stop)
+    return () => window.removeEventListener('lyrigen:dj-playing', stop)
+  }, [])
 
   const handlePause = useCallback(() => {
     setIsPlaying(false)
