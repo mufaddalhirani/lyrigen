@@ -221,12 +221,84 @@ _models: dict = {}
 _aligner = None
 
 
-def _load_whisper(model_size: str, device: str, compute: str):
+def _models_folder() -> str:
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "LyricStudio", "models")
+
+
+def fetch_model(model_size: str, on_status=None, on_progress=None) -> str:
+    """The model's folder on disk, downloading it first if needed.
+
+    faster-whisper's own download is silent and starts from zero every time it
+    is interrupted, so Medium (1.5 GB) and Large (3 GB) looked like they never
+    loaded — and each cancel threw away what had arrived. Here every file is
+    fetched with HTTP ranges into a `.part` that the next attempt continues,
+    and progress is reported as it goes.
+    """
+    from faster_whisper.utils import _MODELS, download_model
+    if os.path.isdir(model_size):
+        return model_size
+    try:  # already complete in the Hugging Face cache (older installs)
+        return download_model(model_size, local_files_only=True)
+    except Exception:
+        pass
+    repo = _MODELS.get(model_size, model_size)
+    folder = os.path.join(_models_folder(), repo.replace("/", "--"))
+    done_marker = os.path.join(folder, ".complete")
+    if os.path.exists(done_marker):
+        return folder
+    import requests
+    from huggingface_hub import HfApi, hf_hub_url
+    os.makedirs(folder, exist_ok=True)
+    wanted = ("config.json", "preprocessor_config.json", "model.bin", "tokenizer.json")
+    info = HfApi().model_info(repo, files_metadata=True)
+    files = [(s.rfilename, s.size or 0) for s in info.siblings
+             if s.rfilename in wanted or s.rfilename.startswith("vocabulary.")]
+    total = sum(size for _, size in files) or 1
+    have = sum(os.path.getsize(os.path.join(folder, name)) for name, _ in files if os.path.exists(os.path.join(folder, name)))
+    for name, size in files:
+        target = os.path.join(folder, name)
+        if os.path.exists(target) and (not size or os.path.getsize(target) == size):
+            continue
+        part = target + ".part"
+        start = os.path.getsize(part) if os.path.exists(part) else 0
+        headers = {"Range": f"bytes={start}-"} if start else {}
+        with requests.get(hf_hub_url(repo, name), headers=headers, stream=True, timeout=60) as response:
+            if response.status_code == 416:  # the part is already whole
+                response.close()
+            else:
+                response.raise_for_status()
+                if start and response.status_code != 206:
+                    start = 0  # the server ignored the range; begin again
+                with open(part, "ab" if start else "wb") as handle:
+                    received = start
+                    last = -1
+                    for chunk in response.iter_content(1 << 20):
+                        handle.write(chunk)
+                        received += len(chunk)
+                        percent = int((have + received) * 100 / total)
+                        if percent != last:
+                            last = percent
+                            if on_status:
+                                on_status(f"Downloading the {model_size} model (once): {(have + received) / 1e9:.2f} of {total / 1e9:.2f} GB — "
+                                          "you can cancel and it continues where it stopped.")
+                            if on_progress:
+                                on_progress(percent)
+        os.replace(part, target)
+        have += size
+    open(done_marker, "w").close()
+    return folder
+
+
+def _load_whisper(model_size: str, device: str, compute: str, on_status=None, on_progress=None):
     import stable_whisper
     key = (model_size, device, compute)
     if key not in _models:
         _models.clear()  # one model in memory at a time; they are large
-        _models[key] = stable_whisper.load_faster_whisper(model_size, device=device, compute_type=compute)
+        path = fetch_model(model_size, on_status, on_progress)
+        if on_status:
+            on_status(f"Loading the {model_size} model on the {'GPU' if device == 'cuda' else 'CPU'}…")
+        _models[key] = stable_whisper.load_faster_whisper(path, device=device, compute_type=compute)
     return _models[key]
 
 
@@ -346,7 +418,7 @@ def sync(audio_path: str, *, model: str = "base", level: str = "word", lyrics_te
         timed_lines, lyrics, note = given_lines, given_text, None
         try:
             status("loading-model", f"Loading the {model} model on the {'GPU' if dev == 'cuda' else 'CPU'}… (the first use downloads it)")
-            whisper = _load_whisper(model, dev, compute)
+            whisper = _load_whisper(model, dev, compute, lambda message: status("downloading-model", message), progress)
             on_event({"event": "device", "device": dev, "compute": compute,
                       "note": "CUDA 12 libraries loaded from pip packages." if dev == "cuda" and cuda_dirs else ""})
             audio = faster_whisper.decode_audio(audio_path)
