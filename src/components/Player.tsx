@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { type LyricLine } from '@applemusic-like-lyrics/lyric'
 import { BratLyrics } from './BratLyrics'
+import { VISUAL_MODES, VISUAL_MODE_EVENT, loadVisualMode, saveVisualMode, type VisualMode } from '../lib/visualModes'
 import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
@@ -28,16 +29,7 @@ interface PlayerProps extends LibraryTrack {
 }
 
 type RepeatMode = 'off' | 'all' | 'one'
-type VisualMode = 'balanced' | 'lyrics' | 'cover' | 'vinyl' | 'visualizer' | 'brat'
-
-const VISUAL_MODE_OPTIONS: Array<{ value: VisualMode; label: string; description: string }> = [
-  { value: 'balanced', label: 'Balanced', description: 'Cover, details, and lyrics together' },
-  { value: 'lyrics', label: 'Lyrics only', description: 'A calm, focused lyric view' },
-  { value: 'cover', label: 'Cover only', description: 'Large album artwork and details' },
-  { value: 'vinyl', label: 'Spinning vinyl', description: 'Album art as a gentle record' },
-  { value: 'visualizer', label: 'Reactive visualizer', description: 'Lightweight bars that follow the music' },
-  { value: 'brat', label: 'brat', description: 'Lime green; each word flies in from alternate sides as it is sung' },
-]
+const VISUAL_MODE_OPTIONS = VISUAL_MODES.map(mode => ({ value: mode.id, label: mode.label, description: mode.description }))
 
 const VISUALIZER_BARS = Array.from({ length: 18 }, (_, index) => index)
 
@@ -221,14 +213,21 @@ export function Player({
   const lookupGeneration = useRef(0)
   const [fluid, setFluid] = useState<FluidSettings>(loadFluidSettings)
   const changeFluid = (patch: Partial<FluidSettings>) => setFluid(current => { const next = { ...current, ...patch }; saveFluidSettings(next); return next })
-  const [visualMode, setVisualMode] = useState<VisualMode>(() => {
-    const saved = localStorage.getItem('lyrigen-visual-mode-v1') as VisualMode | null
-    return VISUAL_MODE_OPTIONS.some(option => option.value === saved) ? saved! : 'balanced'
-  })
-
+  const [visualMode, setVisualModeState] = useState<VisualMode>(loadVisualMode)
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false)
+  const setVisualMode = (mode: VisualMode) => { setVisualModeState(mode); saveVisualMode(mode) }
+  // Sound Lab can change the view too; follow it.
   useEffect(() => {
-    localStorage.setItem('lyrigen-visual-mode-v1', visualMode)
-  }, [visualMode])
+    const follow = (event: Event) => setVisualModeState((event as CustomEvent<VisualMode>).detail)
+    window.addEventListener(VISUAL_MODE_EVENT, follow)
+    return () => window.removeEventListener(VISUAL_MODE_EVENT, follow)
+  }, [])
+  useEffect(() => {
+    if (!isModeMenuOpen) return
+    const close = (event: MouseEvent) => { if (!(event.target as HTMLElement).closest('.view-mode-picker')) setIsModeMenuOpen(false) }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [isModeMenuOpen])
 
   const parseLyrics = useCallback((content: string, extension: string, source: string, totalDuration: number) => {
     const document = parseLyricDocument(content, extension, totalDuration)
@@ -585,6 +584,17 @@ export function Player({
         <button className="glass-pill back-button" onClick={onBack}><ControlIcon><path d="m15.5 5-7 7 7 7 1.4-1.4-5.6-5.6 5.6-5.6L15.5 5Z" /></ControlIcon><span>Library</span></button>
         <div className="now-playing-label"><span className={isPlaying ? 'playing-dot active' : 'playing-dot'} />NOW PLAYING</div>
         <div className="window-controls">
+          <div className="view-mode-picker">
+            <button className={`glass-pill view-mode-button ${isModeMenuOpen ? 'active' : ''}`} onClick={() => setIsModeMenuOpen(open => !open)} aria-haspopup="menu" aria-expanded={isModeMenuOpen} title="Change the now-playing view">
+              <ControlIcon><path d="M4 5h16v14H4V5Zm2 2v10h5V7H6Zm7 0v4h5V7h-5Zm0 6v4h5v-4h-5Z" /></ControlIcon>
+              <span>{VISUAL_MODES.find(mode => mode.id === visualMode)?.label ?? 'View'}</span>
+            </button>
+            {isModeMenuOpen && <div className="view-mode-menu" role="menu">
+              {VISUAL_MODES.map(mode => <button key={mode.id} role="menuitemradio" aria-checked={mode.id === visualMode} className={`view-mode-option mode-${mode.id} ${mode.id === visualMode ? 'on' : ''}`} onClick={() => { setVisualMode(mode.id); setIsModeMenuOpen(false) }}>
+                <strong>{mode.label}</strong><small>{mode.description}</small>
+              </button>)}
+            </div>}
+          </div>
           <button className={`glass-icon-button ${isSettingsOpen ? 'active' : ''}`} onClick={() => { setIsSettingsOpen(value => !value); setIsQueueOpen(false) }} aria-label="Sound and lyrics settings"><ControlIcon><path d="M4 7h10v2H4V7Zm0 8h6v2H4v-2Zm14-9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm-4 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" /></ControlIcon></button>
           <button className={`glass-icon-button ${isQueueOpen ? 'active' : ''}`} onClick={() => { setIsQueueOpen(value => !value); setIsSettingsOpen(false) }} aria-label="Queue"><ControlIcon><path d="M4 6h12v2H4V6Zm0 5h12v2H4v-2Zm0 5h8v2H4v-2Zm11-1 5 3-5 3v-6Z" /></ControlIcon></button>
           <button className="glass-icon-button" onClick={() => onMiniModeChange ? onMiniModeChange(true) : window.electronAPI.setMiniMode(true)} aria-label="Mini player"><ControlIcon><path d="M5 6h14v12H5V6Zm9 7h3v3h-3v-3Z" /></ControlIcon></button>

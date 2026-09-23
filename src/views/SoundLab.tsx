@@ -1,5 +1,6 @@
 // Extracted from the former 45KB single-file App.tsx.
 
+import { VISUAL_MODES, loadVisualMode, saveVisualMode, type VisualMode } from '../lib/visualModes'
 import { useState } from 'react'
 import { Icon } from '../components/common/Icon'
 import { LrcConverter } from '../components/LrcConverter'
@@ -51,6 +52,7 @@ const SOUND_GUIDE: Array<{ title: string; detail: string }> = [
 export function SoundLab() {
   const [section, setSection] = useState<Section>('appearance')
   const [appearance, setAppearance] = useState(loadAppearance)
+  const [visualMode, setVisualMode] = useState<VisualMode>(loadVisualMode)
   const update = (patch: Partial<typeof appearance>) => {
     const next = { ...appearance, ...patch }
     setAppearance(next)
@@ -84,6 +86,7 @@ export function SoundLab() {
           <ChoiceRow title="Theme" hint="Palette and panel treatment" options={THEMES} value={appearance.theme} onChange={theme => update({ theme })} />
           <ChoiceRow title="Typeface" hint="Interface and lyrics" options={FONTS} value={appearance.font} onChange={font => update({ font })} />
           <ChoiceRow title="Lyric motion" hint="How the active line is emphasised" options={LYRIC_MOTIONS} value={appearance.motion} onChange={motion => update({ motion })} />
+          <ChoiceRow title="Now-playing view" hint="Also in the player's top bar" options={VISUAL_MODES} value={visualMode} onChange={mode => { setVisualMode(mode as VisualMode); saveVisualMode(mode as VisualMode) }} />
         </div>
       )}
 

@@ -426,3 +426,35 @@ html[data-theme="paper"] ::-webkit-scrollbar-thumb:hover{background:rgba(20,16,1
 .settings-grid>*,.settings-card{min-width:0}
 .settings-facts{grid-template-columns:minmax(0,1fr)}.settings-facts div{min-width:0}.settings-facts dd{min-width:0}
 .search-field kbd{white-space:nowrap;flex:none}
+/* The now-playing view picker in the player's top bar. */
+.view-mode-picker{position:relative}
+.view-mode-button{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 9px;font-size:11px}
+.view-mode-button.active{background:rgba(255,255,255,.14)}
+.view-mode-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:40;display:grid;gap:3px;width:268px;padding:6px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(22,20,28,.96);box-shadow:0 18px 50px rgba(0,0,0,.45);backdrop-filter:blur(18px)}
+.view-mode-option{display:grid;gap:2px;padding:8px 10px;border-radius:8px;background:transparent;color:#e9e4ec;text-align:left}
+.view-mode-option:hover{background:rgba(255,255,255,.07)}
+.view-mode-option.on{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+.view-mode-option strong{font-size:12px;font-weight:600}
+.view-mode-option small{color:#a79fae;font-size:10.5px;line-height:1.35}
+.view-mode-option.mode-brat strong{display:inline-block;width:fit-content;padding:0 6px;border-radius:3px;background:#8ace00;color:#000;font-family:"Arial Narrow",Arial,sans-serif;font-weight:400;text-transform:lowercase}
+.visual-mode-brat .view-mode-button{color:#000;border-color:rgba(0,0,0,.3);background:rgba(0,0,0,.06)}
+.visual-mode-brat .view-mode-button span{color:#000}
+/* The top bar sizes every button as a 32 px icon; the picker and its menu opt out. */
+.player-titlebar .window-controls .view-mode-button{width:auto;min-width:0;height:32px;padding:0 12px 0 9px;color:#e6e0ea;font-size:11.5px;white-space:nowrap}
+.player-titlebar .window-controls .view-mode-button span{max-width:none}
+.player-titlebar .window-controls .view-mode-option{width:100%;height:auto;padding:8px 10px;background:transparent;font-size:inherit}
+.player-titlebar .window-controls .view-mode-option:hover{background:rgba(255,255,255,.07)}
+.player-titlebar .window-controls .view-mode-option.on{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+.player-titlebar .window-controls .view-mode-picker{margin-right:4px}
+.visual-mode-brat .view-mode-menu{background:rgba(250,255,240,.97);border-color:rgba(0,0,0,.2)}
+.visual-mode-brat .view-mode-menu .view-mode-option strong,.visual-mode-brat .view-mode-menu .view-mode-option{color:#111}
+.visual-mode-brat .view-mode-menu .view-mode-option small{color:#444}
+/* Player top bar: icon buttons widen on hover to say what they do. The label
+   is the button's own aria-label, so there is nothing extra to keep in sync. */
+.player-titlebar .window-controls .glass-icon-button{display:inline-flex;align-items:center;justify-content:center;width:auto;min-width:32px;padding:0 7px;overflow:hidden;white-space:nowrap;transition:background .2s ease,color .2s ease,padding .25s ease}
+.player-titlebar .window-controls .glass-icon-button::after{content:attr(aria-label);max-width:0;margin-left:0;opacity:0;overflow:hidden;font-size:11.5px;font-weight:500;line-height:1;transition:max-width .28s cubic-bezier(.2,.8,.2,1),margin-left .28s ease,opacity .2s ease}
+.player-titlebar .window-controls .glass-icon-button:hover,.player-titlebar .window-controls .glass-icon-button:focus-visible{padding:0 11px 0 9px}
+.player-titlebar .window-controls .glass-icon-button:hover::after,.player-titlebar .window-controls .glass-icon-button:focus-visible::after{max-width:180px;margin-left:7px;opacity:1}
+.player-titlebar .window-controls .glass-icon-button svg{flex:none}
+@media (prefers-reduced-motion: reduce){.player-titlebar .window-controls .glass-icon-button,.player-titlebar .window-controls .glass-icon-button::after{transition:none}}
+.reduce-motion .player-titlebar .window-controls .glass-icon-button,.reduce-motion .player-titlebar .window-controls .glass-icon-button::after{transition:none}
