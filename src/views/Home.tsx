@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Artwork } from '../components/common/Artwork'
 import { Icon } from '../components/common/Icon'
 import { QualityBadge } from '../components/common/QualityBadge'
-import { Stat } from '../components/common/Stat'
 import { displayArtist, prettyTotal } from '../lib/format'
 import { buildSuggestions, randomRun } from '../lib/suggestions'
 
@@ -78,43 +77,65 @@ export function Home({ stats, library, onPlay, onOpenLibrary, onInspect: _onInsp
     return <div className="home-view"><div className="empty-card"><span className="empty-icon"><Icon name="music" size={28} /></span><h3>A softer library starts here.</h3><p>Your files never leave this computer. Add one or more folders to begin.</p><button className="ghost-button" onClick={onOpenLibrary}>Set up library</button></div></div>
   }
 
-  return <div className="home-view">
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
+  const numberFormat = new Intl.NumberFormat()
+
+  return <div className="home-view ed-home">
+    <header className="ed-masthead">
+      <h1 className="ed-greeting">{greeting()}<em>.</em></h1>
+      <p className="ed-dateline">{today}<br />{numberFormat.format(library.length)} songs on this computer</p>
+    </header>
 
     {lead ? (
-      <section className="continue-hero" style={tint ? { '--hero-tint': tint } as CSSProperties : undefined}>
-        <div className="continue-backdrop" aria-hidden="true"><Artwork track={lead} large /></div>
-        <button className="continue-art" onClick={() => onPlay(lead)} aria-label={`Play ${lead.title}`}><Artwork track={lead} large /></button>
-        <div className="continue-copy">
-          <span className="hero-kicker">CONTINUE LISTENING</span>
-          <h3>{lead.title}</h3>
-          <p>{displayArtist(lead)}{lead.album ? <> <i>·</i> {lead.album}</> : null} <QualityBadge source={lead} /></p>
-          <div className="hero-actions">
-            <button className="accent-button" onClick={() => onPlay(lead)}><Icon name="play" size={15} /> Play</button>
-            {isRealAlbum(lead) && <button className="ghost-button" onClick={() => playRecord(lead)}><Icon name="library" size={15} /> Play {lead.album}</button>}
-            {library.length > 1 && <button className="ghost-button" onClick={() => onPlayRun(randomRun(library))}><Icon name="spark" size={15} /> Shuffle everything</button>}
+      <section className="ed-feature" style={tint ? { '--hero-tint': tint } as CSSProperties : undefined}>
+        <button className="ed-feature-art" onClick={() => onPlay(lead)} aria-label={`Play ${lead.title}`}><Artwork track={lead} large /></button>
+        <div className="ed-feature-copy">
+          <span className="ed-kicker"><b>No. 01</b> — Continue listening</span>
+          <h2 className="ed-feature-title">{lead.title}</h2>
+          <p className="ed-feature-meta">{displayArtist(lead)}{lead.album ? <><i>/</i>{lead.album}</> : null}<QualityBadge source={lead} /></p>
+          <div className="ed-actions">
+            <button className="ed-primary" onClick={() => onPlay(lead)}><Icon name="play" size={14} /> Play</button>
+            {isRealAlbum(lead) && <button className="ed-link" onClick={() => playRecord(lead)}>Play the album</button>}
+            {library.length > 1 && <button className="ed-link" onClick={() => onPlayRun(randomRun(library))}>Shuffle everything</button>}
           </div>
         </div>
       </section>
     ) : (
-      <section className="welcome-hero"><div><span className="hero-kicker">THE ROOM IS READY</span><h3>Let the next song<br /><i>find you.</i></h3><p>{library.length} tracks in your local library. No accounts, no noise.</p><div className="hero-actions"><button className="accent-button" onClick={onOpenLibrary}><Icon name="library" size={16} /> Open library</button>{library.length > 1 && <button className="ghost-button" onClick={() => onPlayRun(randomRun(library))}><Icon name="spark" size={15} /> Shuffle everything</button>}</div></div><div className="hero-orbit"><span /><span /><span /></div></section>
+      <section className="ed-feature ed-feature-empty">
+        <div className="ed-feature-copy" style={{ gridColumn: '1 / -1' }}>
+          <span className="ed-kicker"><b>No. 01</b> — The room is ready</span>
+          <h2 className="ed-feature-title">Let the next song <i>find you.</i></h2>
+          <div className="ed-actions">
+            <button className="ed-primary" onClick={onOpenLibrary}><Icon name="library" size={14} /> Open the library</button>
+            {library.length > 1 && <button className="ed-link" onClick={() => onPlayRun(randomRun(library))}>Shuffle everything</button>}
+          </div>
+        </div>
+      </section>
     )}
 
-    <section className="home-section">
-      <div className="section-heading"><div><span className="kicker">{recent.length ? 'PICK UP AGAIN' : 'FROM YOUR LIBRARY'}</span><h3>Jump back in</h3></div><button className="text-link" onClick={onOpenLibrary}>See library <Icon name="chevron" size={14} /></button></div>
-      <div className="quick-grid">
-        {quickTiles.map(track => (
-          <button key={track.id} className="quick-tile" onClick={() => playRecord(track)} title={isRealAlbum(track) ? `Play ${track.album}` : `Play ${track.title}`}>
-            <Artwork track={track} />
-            <span><strong>{isRealAlbum(track) ? track.album : track.title}</strong><small>{displayArtist(track)}</small></span>
-            <i className="quick-play"><Icon name="play" size={14} /></i>
-          </button>
+    <dl className="ed-index">
+      <div><dt>Songs</dt><dd>{numberFormat.format(stats?.tracks ?? library.length)}</dd></div>
+      <div><dt>Albums</dt><dd>{stats?.albums != null ? numberFormat.format(stats.albums) : '—'}</dd></div>
+      <div><dt>Favourites</dt><dd>{numberFormat.format(stats?.favorites ?? 0)}</dd></div>
+      <div><dt>Listened</dt><dd>{stats ? prettyTotal(stats.totalDuration) : '—'}</dd></div>
+    </dl>
+
+    <section className="ed-section">
+      <header className="ed-section-head"><h3>Jump back in</h3><span className="ed-kicker">{recent.length ? 'Pick up again' : 'From your library'}</span><button className="ed-link" onClick={onOpenLibrary}>See the library</button></header>
+      <ol className="ed-list">
+        {quickTiles.map((track, index) => (
+          <li key={track.id}>
+            <button onClick={() => playRecord(track)} title={isRealAlbum(track) ? `Play ${track.album}` : `Play ${track.title}`}>
+              <span className="ed-num">{String(index + 1).padStart(2, '0')}</span>
+              <Artwork track={track} />
+              <span><strong>{isRealAlbum(track) ? track.album : track.title}</strong><small>{displayArtist(track)}</small></span>
+            </button>
+          </li>
         ))}
-      </div>
+      </ol>
     </section>
 
-    <div className="stats-grid"><Stat label="Tracks" value={String(stats?.tracks ?? library.length)} /><Stat label="Albums" value={String(stats?.albums ?? '—')} /><Stat label="Favorites" value={String(stats?.favorites ?? 0)} /><Stat label="Listening time" value={stats ? prettyTotal(stats.totalDuration) : '—'} /></div>
-
-    {suggestions.map(section => <section className="home-section" key={section.id}><div className="section-heading"><div><span className="kicker">{section.reason.toLocaleUpperCase()}</span><h3>{section.title}</h3></div><button className="text-link" onClick={() => onPlayRun(section.tracks)}>Play all <Icon name="chevron" size={14} /></button></div><div className="album-strip">{section.tracks.slice(0, 8).map(track => <button key={track.id} className="album-card" onClick={() => onPlay(track)}><Artwork track={track} large /><strong>{track.title}</strong><span>{displayArtist(track)}</span></button>)}</div></section>)}
-    {mostPlayed.length > 0 && <section className="home-section"><div className="section-heading"><div><span className="kicker">YOUR RHYTHM</span><h3>Most played</h3></div></div><div className="album-strip">{mostPlayed.slice(0, 8).map(track => <button key={track.id} className="album-card" onClick={() => onPlay(track)}><Artwork track={track} large /><strong>{track.title}</strong><span>{displayArtist(track)}</span></button>)}</div></section>}
+    {suggestions.map(section => <section className="ed-section" key={section.id}><header className="ed-section-head"><h3>{section.title}</h3><span className="ed-kicker">{section.reason}</span><button className="ed-link" onClick={() => onPlayRun(section.tracks)}>Play all</button></header><div className="album-strip">{section.tracks.slice(0, 8).map(track => <button key={track.id} className="album-card" onClick={() => onPlay(track)}><Artwork track={track} large /><strong>{track.title}</strong><span>{displayArtist(track)}</span></button>)}</div></section>)}
+    {mostPlayed.length > 0 && <section className="ed-section"><header className="ed-section-head"><h3>Most played</h3><span className="ed-kicker">Your rhythm</span></header><div className="album-strip">{mostPlayed.slice(0, 8).map(track => <button key={track.id} className="album-card" onClick={() => onPlay(track)}><Artwork track={track} large /><strong>{track.title}</strong><span>{displayArtist(track)}</span></button>)}</div></section>}
   </div>
 }

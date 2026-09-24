@@ -126,7 +126,7 @@
 .queue-main small.error { color: #f0b6be; white-space: normal; }
 .queue-status { display: grid; gap: 6px; }
 .queue-status .bar { position: relative; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; }
-.queue-status .bar i { position: absolute; inset: 0 auto 0 0; width: var(--progress, 0%); border-radius: 3px; background: linear-gradient(90deg, #b97890, var(--accent-strong)); transition: width .3s ease; }
+.queue-status .bar i { position: absolute; inset: 0 auto 0 0; width: var(--progress, 0%); border-radius: 3px; background: linear-gradient(90deg, #b97890, var(--accent-strong)); transition: none; }
 .queue-status .bar.indeterminate i { width: 40%; animation: queue-slide 1.2s ease-in-out infinite alternate; }
 @keyframes queue-slide { from { left: 0 } to { left: 60% } }
 .queue-status .meta { display: flex; justify-content: space-between; color: #8e8795; font: 9.5px var(--mono); }
@@ -166,7 +166,7 @@
 
 .progress-line { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .progress-line .bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; }
-.progress-line .bar i { display: block; height: 100%; width: var(--progress, 0%); background: linear-gradient(90deg, #b97890, var(--accent-strong)); transition: width .2s; }
+.progress-line .bar i { display: block; height: 100%; width: var(--progress, 0%); background: linear-gradient(90deg, #b97890, var(--accent-strong)); transition: none; }
 
 /* Lyrics hub ------------------------------------------------------- */
 .lyrics-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -275,7 +275,7 @@
 .ai-sync-spinner { width: 14px; height: 14px; border: 2px solid rgba(255, 255, 255, .15); border-top-color: var(--accent-strong); border-radius: 50%; animation: ai-sync-spin .8s linear infinite; }
 @keyframes ai-sync-spin { to { transform: rotate(360deg); } }
 .ai-sync-bar { height: 4px; overflow: hidden; border-radius: 2px; background: rgba(255, 255, 255, .07); }
-.ai-sync-bar b { display: block; height: 100%; background: var(--accent-strong); transition: width .3s ease; }
+.ai-sync-bar b { display: block; height: 100%; background: var(--accent-strong); transition: none; }
 .ai-sync-bar.indeterminate b { width: 30%; animation: ai-sync-slide 1.2s ease-in-out infinite; }
 @keyframes ai-sync-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .ai-sync-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

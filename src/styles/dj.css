@@ -1,7 +1,7 @@
 /* ---------- DJ (views/Dj.tsx) ---------- */
-/* Deck A is violet, deck B is blue, everywhere: waveforms, pads, meters. */
+/* Deck A is amber, deck B is sea green, everywhere: waveforms, pads, meters. */
 
-.dj-view { --deck-a: #b58cff; --deck-b: #5fb8ff; display: grid; gap: 14px; max-width: 1480px; margin: 0 auto; user-select: none; }
+.dj-view { --deck-a: #f0a35e; --deck-b: #5cc9b1; display: grid; gap: 14px; max-width: 1480px; margin: 0 auto; user-select: none; }
 .dj-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 300px) minmax(0, 1fr); gap: 12px; align-items: stretch; }
 .dj-bottom { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 .dj-deck, .dj-mixer, .dj-browser, .dj-automix, .dj-sampler { border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .03); }
@@ -26,7 +26,7 @@
 .dj-overview { height: 30px; cursor: pointer; }
 
 .dj-transport { display: flex; align-items: center; gap: 7px; }
-.dj-pad { display: grid; place-items: center; min-width: 38px; height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .05); color: #ddd6e2; font: 650 11px var(--mono); letter-spacing: .5px; transition: background .12s, border-color .12s, color .12s; }
+.dj-pad { display: grid; place-items: center; min-width: 38px; height: 34px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .05); color: #ddd6e2; font: 650 11px var(--mono); letter-spacing: .5px; transition: none; }
 .dj-pad:hover:not(:disabled) { background: rgba(255, 255, 255, .1); color: #fff; }
 .dj-pad:active:not(:disabled) { transform: translateY(1px); }
 .dj-pad:disabled { opacity: .35; }
@@ -116,7 +116,7 @@
 
 .dj-party { position: fixed; inset: 0; z-index: 60; display: grid; place-items: end start; background: #000; }
 .dj-party .fluid-background { position: absolute; inset: 0; }
-.dj-party-plain { position: absolute; inset: 0; background: radial-gradient(circle at 30% 30%, #5b2a86, #0b0612 70%); }
+.dj-party-plain { position: absolute; inset: 0; background: #0c0b0e; }
 .dj-party-text { position: relative; display: grid; gap: 6px; padding: 0 0 7vh 6vw; text-shadow: 0 4px 30px rgba(0, 0, 0, .5); }
 .dj-party-text strong { font-size: clamp(36px, 7vw, 110px); font-weight: 700; letter-spacing: -2px; line-height: .95; }
 .dj-party-text span { color: rgba(255, 255, 255, .8); font-size: clamp(16px, 2vw, 28px); }

@@ -24,7 +24,7 @@ await win.setViewportSize({ width: 1440, height: 900 })
 await win.evaluate(() => { localStorage.setItem('lyrigen-debug', '1') })
 await win.reload()
 await win.waitForTimeout(6000)
-const shot = async name => { await win.waitForTimeout(700); await win.screenshot({ path: path.join(out, `${name}.png`) }); console.log('shot', name) }
+const shot = async name => { await win.mouse.move(720, 470); await win.waitForTimeout(700); await win.screenshot({ path: path.join(out, `${name}.png`) }); console.log('shot', name) }
 const nav = name => win.locator('.nav button, .sidebar-section button', { hasText: name }).first().click()
 
 await nav('Home'); await shot('home')

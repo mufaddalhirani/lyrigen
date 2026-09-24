@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+  README banners, rendered to PNG by scripts/readme-banners.mjs.
+  ?app=lyrigen or ?app=studio picks the variant. Uses the fonts the app bundles.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @font-face { font-family: "Instrument Serif"; src: url("../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2"); }
+  @font-face { font-family: "Instrument Serif"; font-style: italic; src: url("../../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2"); }
+  @font-face { font-family: "Geist"; font-weight: 100 900; src: url("../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2"); }
+  @font-face { font-family: "Geist Mono"; font-weight: 100 900; src: url("../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2"); }
+  :root { --ink: #f3eee8; --muted: #8f8893; --rule: rgba(243, 238, 232, .16); --rose: #e8a3b3; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1600px; height: 560px; background: #0f0e11; color: var(--ink); overflow: hidden; }
+  .frame { position: relative; display: grid; grid-template-columns: 1fr 430px; height: 100%; padding: 56px 72px 52px; }
+  .mark { align-self: end; font: 400 250px/.8 "Instrument Serif"; letter-spacing: -.035em; }
+  .mark em { color: var(--rose); }
+  .mark small { display: block; margin-bottom: 26px; font: 500 15px "Geist Mono"; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); }
+  .side { display: grid; align-content: space-between; padding-left: 40px; border-left: 1px solid var(--rule); }
+  .index { display: grid; gap: 0; font: 400 21px/1.2 "Geist"; }
+  .index div { display: grid; grid-template-columns: 44px 1fr; padding: 13px 0; border-bottom: 1px solid var(--rule); }
+  .index span { color: var(--muted); font: 500 14px/1.6 "Geist Mono"; }
+  .lyric { font: 650 34px/1.15 "Geist"; letter-spacing: -.01em; color: rgba(243, 238, 232, .28); }
+  .lyric b { color: var(--ink); font-weight: 650; }
+  .lyric i { font-style: normal; background: linear-gradient(90deg, var(--ink) 55%, rgba(243, 238, 232, .28) 55%); -webkit-background-clip: text; color: transparent; }
+  .syll { font: 500 30px/1.5 "Geist Mono"; color: var(--muted); letter-spacing: .02em; }
+  .syll b { color: var(--ink); font-weight: 500; }
+  .syll u { text-decoration: none; color: var(--rose); }
+  .studio .mark { font-size: 196px; }
+</style>
+</head>
+<body>
+<div class="frame" id="frame"></div>
+<script>
+  const app = new URLSearchParams(location.search).get('app') || 'lyrigen'
+  const frame = document.getElementById('frame')
+  if (app === 'studio') {
+    document.body.classList.add('studio')
+    frame.innerHTML = `
+      <div class="mark"><small>A companion to Lyrigen</small>Lyric<br>Studio<em>.</em></div>
+      <div class="side">
+        <div class="index">
+          <div><span>01</span>Lyrics found for you</div>
+          <div><span>02</span>Timed word by word</div>
+          <div><span>03</span>…or syllable by syllable</div>
+          <div><span>04</span>On your own computer</div>
+        </div>
+        <p class="syll"><b>ri</b><u>·</u>ver &nbsp; <b>lit</b><u>·</u>tle<br><b>glass</b> <b>ho</b><u>·</u>ri<u>·</u>zon</p>
+      </div>`
+  } else {
+    frame.innerHTML = `
+      <div class="mark"><small>A music player for Windows</small>Lyrigen<em>.</em></div>
+      <div class="side">
+        <div class="index">
+          <div><span>01</span>Word &amp; syllable lyrics</div>
+          <div><span>02</span>Two decks, beat-synced</div>
+          <div><span>03</span>AI lyric sync, offline</div>
+          <div><span>04</span>No account. No telemetry.</div>
+        </div>
+        <p class="lyric"><b>we were drawing</b> <i>lines</i> across the glass horizon</p>
+      </div>`
+  }
+</script>
+</body>
+</html>

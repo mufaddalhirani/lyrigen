@@ -1,100 +1,55 @@
-<div align="center">
+<img src="docs/banner.png" alt="Lyrigen — a music player for Windows" width="100%" />
 
-<img src="docs/icon.png" width="112" alt="Lyrigen icon" />
+**Lyrigen** is a free music player for the songs already on your computer. Lyrics follow the voice word by word — syllable by syllable when you want karaoke — a DJ mode mixes two songs on the beat, and nothing you play ever leaves the machine. No account, no subscription, no telemetry.
 
-# Lyrigen
+**[Download for Windows →](https://github.com/mufaddalhirani/lyrigen/releases/latest)** &nbsp;·&nbsp; version 2.5.0 &nbsp;·&nbsp; Windows 10 and 11 &nbsp;·&nbsp; companion app: [Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio)
 
-**A free, local-first music player for Windows — with word-by-word lyrics, karaoke-grade syllable sync, a DJ mode and liquid visuals.**
-
-Your music, on your computer. No account, no subscription, no telemetry.
-
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%2010%20%2F%2011-d18fa0?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mufaddalhirani/lyrigen/releases/latest)
-&nbsp;
-[![Lyric Studio](https://img.shields.io/badge/Companion-Lyric%20Studio-8b7cff?style=for-the-badge)](https://github.com/mufaddalhirani/lyrics-studio)
-
-[![Latest release](https://img.shields.io/github/v/release/mufaddalhirani/lyrigen?label=version&color=d18fa0)](https://github.com/mufaddalhirani/lyrigen/releases/latest)
-![Platform](https://img.shields.io/badge/platform-Windows-4a4a55)
-![Built with](https://img.shields.io/badge/built%20with-Electron%20%2B%20React-4a4a55)
-
-<img src="docs/screenshots/player.jpg" alt="Now playing: word-by-word lyrics over a fluid background made from the album art" width="920" />
-
-</div>
+<img src="docs/screenshots/player.jpg" alt="Now playing: word-by-word lyrics beside the album art, over a slowly moving background made from the cover" width="100%" />
 
 ---
 
-## Highlights
+### 01 &nbsp;The player
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/home.jpg" alt="Home" /><br /><b>Home</b> — pick up where you left off, shelves built from what you actually play.</td>
-<td width="50%"><img src="docs/screenshots/library.jpg" alt="Library" /><br /><b>Library</b> — folders, songs, albums, artists and genres; opens instantly, even with thousands of songs.</td>
+<td width="62%" rowspan="2"><img src="docs/screenshots/home.jpg" alt="Home: the song you were last playing, set large" /></td>
+<td><img src="docs/screenshots/brat.jpg" alt="brat mode: lime green, words fly in as they are sung" /></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/player-interlude.jpg" alt="Lyrics with a live visualizer in an instrumental break" /><br /><b>Live lyrics</b> — word- and syllable-timed; a small visualizer plays in instrumental breaks.</td>
-<td><img src="docs/screenshots/brat.jpg" alt="brat lyric mode" /><br /><b>brat mode</b> — lime green, each word flies in from alternate sides as it is sung.</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/dj.jpg" alt="DJ screen with two decks" /><br /><b>DJ</b> — two decks with automatic BPM, beat sync, loops, hot cues, effects, sampler and automix.</td>
-<td><img src="docs/screenshots/lyrics.jpg" alt="AI lyric sync" /><br /><b>AI lyric sync</b> — time any song word by word or syllable by syllable, on your own PC.</td>
+<td><img src="docs/screenshots/player-interlude.jpg" alt="An instrumental break: a small live visualizer between the lines" /></td>
 </tr>
 </table>
 
+Home opens on what you were last playing. The player puts the lyrics beside the cover, over a background made from the cover itself — blurred, slowly moving, pulsing with the beat ([Kawarp](https://github.com/better-lyrics/kawarp)). Choose the view from the player's top bar: Balanced, Lyrics only, Cover only, Spinning vinyl, Visualizer, or **brat**, where each word flies in from alternate sides as it is sung.
+
+Also on board: a six-band EQ with presets and genre modes, dynamic leveling, pitch shift, pitch-preserving speed, centre-vocal reduction, A–B loops, gapless preloading, resume-where-you-paused, a mini player, and global media keys. The library opens instantly, even with thousands of songs.
+
+### 02 &nbsp;The DJ
+
+<img src="docs/screenshots/dj.jpg" alt="The DJ screen: two decks with waveforms, a mixer, the library and a sampler" width="100%" />
+
+Two decks that find each song's **tempo and beat grid** on their own, then **sync** them — tempo and phase, half- and double-time aware — and keep them locked. Scrolling waveforms, cue and four hot cues per song, loops from ½ to 16 beats, beat roll, vinyl brake, three-band EQ with kills, a filter sweep, echo, reverb, flanger, bitcrush, and an eight-pad sampler. **Automix** blends a queue of songs on the beat; **record** your mix to an Opus file; map any USB controller with **MIDI learn**; go full-screen with party mode.
+
+### 03 &nbsp;Lyrics, found and timed
+
+<table>
+<tr>
+<td width="36%"><img src="docs/screenshots/library.jpg" alt="The library, by album" /></td>
+<td><img src="docs/screenshots/lyrics.jpg" alt="AI lyric sync: word or syllable timing, made on your computer" /></td>
+</tr>
+</table>
+
+Lyrigen reads `.ttml`, `.lrc`, `.yrc` and `.txt` beside each song, and finds the rest from free sources — Better Lyrics, BiniLyrics, Unison, AMLL TTML DB and LRCLIB — keeping the **best-timed** match. Click any word to jump to it. With **[Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio)** installed, *AI sync* times any song on your own computer, word by word or syllable by syllable, keeping any timing a person already made. Lyrics are saved beside the song and inside its tags, so other players see them too.
+
+---
+
 ## Install
 
-1. **Download** the latest version from **[Releases](https://github.com/mufaddalhirani/lyrigen/releases/latest)**:
-   - `Lyrigen.Setup.2.5.0.exe` — installs with a Start-menu shortcut and an uninstaller (recommended), or
-   - `Lyrigen-Portable-2.5.0.exe` — a single file that runs from anywhere, no install.
-2. **Run it.** Windows may show *"Windows protected your PC"* because the app isn't code-signed yet. Click **More info → Run anyway**.
-3. **Choose your music folder.** Lyrigen scans every folder beneath it and remembers it. That's it.
+1. Download **`Lyrigen.Setup.2.5.0.exe`** from [Releases](https://github.com/mufaddalhirani/lyrigen/releases/latest) — or `Lyrigen-Portable-2.5.0.exe`, a single file that runs without installing.
+2. Run it. Windows may say *"Windows protected your PC"*, because the app isn't code-signed yet: choose **More info → Run anyway**.
+3. Choose your music folder. Lyrigen scans everything beneath it and remembers it.
 
-Requirements: Windows 10 or 11, 64-bit. Nothing is uploaded; lyrics are the only thing fetched from the internet, and only if you let it.
-
-### Optional extras
-
-| For | Install | Then |
-|---|---|---|
-| **AI lyric sync** (word/syllable timing for karaoke) | [Python 3.10+](https://www.python.org/downloads/) and [Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio) — double-click its `install.bat` | Lyrics Finder → **AI sync** on any song |
-| **Downloads** screen | `winget install yt-dlp.yt-dlp` and `winget install Gyan.FFmpeg` | Lyrigen finds them on `PATH`, or point Settings at their folder |
-
-## Features
-
-<details open>
-<summary><b>Player</b></summary>
-
-- **Fluid background** made from the album art, drawn with [Kawarp](https://github.com/better-lyrics/kawarp) (the renderer behind Better Lyrics Shaders); it pulses with the beat. Strength, warp, speed and colour are adjustable, and it stays light: low resolution, capped frame rate, paused when the window is hidden.
-- **Visual modes:** Balanced, Lyrics only, Cover only, Spinning vinyl, Reactive visualizer, and **brat**.
-- Six-band EQ with presets, genre sound modes, dynamic leveling, pitch shift, pitch-preserving speed, centre-vocal reduction, A–B looping, gapless preloading, resume where you paused, an always-on-top mini player, and global media keys.
-</details>
-
-<details open>
-<summary><b>Lyrics</b></summary>
-
-- Reads `.ttml`, `.lrc`, `.yrc` and `.txt` beside each song; **click any word to jump to it**.
-- Finds lyrics automatically from free sources (Better Lyrics, BiniLyrics, Unison, AMLL TTML DB, LRCLIB) and keeps the **best-timed** match: syllable → word → line → plain.
-- Saves them beside the song *and* inside the file's own tags, so other players see them too.
-- **AI sync** times any song on your computer — word by word, or syllable by syllable for karaoke — keeping any timing a person already made. Powered by [Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio).
-- Handles sped-up / slowed / nightcore edits by stretching the timings to fit.
-</details>
-
-<details>
-<summary><b>DJ</b></summary>
-
-- Two decks with **automatic BPM and beat grid**, **Sync** (tempo and phase, half/double-time aware), keylock, tempo ranges ±8 / 16 / 50 %.
-- Coloured scrolling and overview waveforms, CDJ-style cue, four hot cues per song, ½–16-beat loops, loop in/out, beat roll, vinyl brake, quantize.
-- Three-band EQ with kills, filter sweep, echo, reverb, flanger, bitcrush, and an eight-pad sampler.
-- **Automix** blends queued songs on the beat; **record your mix** to an Opus file; **MIDI learn** for any USB controller; full-screen **party mode**.
-- Keeps playing while you browse, and never plays over the main player.
-</details>
-
-<details>
-<summary><b>Library tools</b></summary>
-
-- **Metadata Studio** to fix tags and artwork, with undo.
-- **Organizer** plans moves into `Artist\Album\` folders — nothing moves until you approve, and Undo puts it all back.
-- **Lyrics Finder** fills in missing lyrics in bulk or lets you pick the match yourself.
-- **Downloads** (optional, uses your own yt-dlp): inspects a link, lets you correct artist/title/album, then tags, adds lyrics and files the song. Duplicate detection across your folders, quality checks, and an inbox folder that files new downloads automatically.
-- **Listening** recaps for the week, month, year or all time — kept on your computer.
-</details>
+**Optional.** For AI lyric sync, install [Python 3.10+](https://www.python.org/downloads/) and [Lyric Studio](https://github.com/mufaddalhirani/lyrics-studio). For the Downloads screen, install yt-dlp and ffmpeg: `winget install yt-dlp.yt-dlp` and `winget install Gyan.FFmpeg`.
 
 <details>
 <summary><b>Keyboard</b></summary>
@@ -105,12 +60,22 @@ Requirements: Windows 10 or 11, 64-bit. Nothing is uploaded; lyrics are the only
 | `←` / `→` | Back / forward 10 seconds |
 | `M` · `S` · `R` | Mute · shuffle · repeat mode |
 | `Ctrl` + `K` | Search your library (`Esc` clears it) |
-| Media keys | Play, previous, next — even when Lyrigen is in the background |
+| Media keys | Play, previous, next — even in the background |
+</details>
+
+<details>
+<summary><b>Library tools</b></summary>
+
+- **Metadata Studio** — fix tags and artwork, with undo.
+- **Organizer** — plans moves into `Artist\Album\` folders; nothing moves until you approve, and Undo puts it all back.
+- **Lyrics Finder** — fills in missing lyrics in bulk, or lets you pick the match.
+- **Downloads** (optional, uses your own yt-dlp) — checks a link, lets you correct artist, title and album, then tags it, adds lyrics and files it.
+- **Listening** — recaps for the week, month, year or all time, kept on your computer.
 </details>
 
 ## Privacy
 
-Lyrigen is local-first. There is no account and no telemetry; your library, play history and settings stay in your Windows user folder. The only network requests are lyric look-ups (which you can switch off) and, if you use them, the optional download and catalog screens.
+There is no account and no telemetry. Your library, history and settings stay in your Windows user folder. The only network requests are lyric look-ups (which you can switch off) and, if you use them, the optional download and catalogue screens.
 
 ## Build from source
 
@@ -122,12 +87,14 @@ npm run dev        # run it while you work on the code
 npm run build      # installer + portable exe in release\
 ```
 
-How it is put together — visual modes, the DSP presets, lyric timing, the DJ engine — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The end-to-end checks the app is tested with live in [`scripts/`](scripts/).
+How it fits together is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); the end-to-end checks live in [`scripts/`](scripts/).
 
-## Please use it responsibly
+## Use it responsibly
 
-The optional Downloads screen drives [yt-dlp](https://github.com/yt-dlp/yt-dlp), which you install yourself. Only download what you have the right to — your own uploads, public-domain or Creative-Commons music, or content the service's terms allow — and respect the terms of the sites you use.
+The optional Downloads screen drives [yt-dlp](https://github.com/yt-dlp/yt-dlp), which you install yourself. Only download what you have the right to — your own uploads, public-domain or Creative Commons music, or content the service's terms allow.
 
 ## Credits
 
-[Apple Music-like Lyrics (AMLL)](https://github.com/Steve-xmh/applemusic-like-lyrics) for the lyric renderer · [Kawarp](https://github.com/better-lyrics/kawarp) for the fluid background · lyrics from [Better Lyrics](https://better-lyrics.boidu.dev), [BiniLyrics](https://lyrics.binimum.org), [Unison](https://unison.boidu.dev), [AMLL TTML DB](https://github.com/Steve-xmh/amll-ttml-db) and [LRCLIB](https://lrclib.net) · icons from [Material Symbols](https://fonts.google.com/icons) · [music-metadata](https://github.com/borewit/music-metadata) · [Electron](https://www.electronjs.org), [React](https://react.dev) and [Vite](https://vite.dev).
+Lyric rendering by [Apple Music-like Lyrics](https://github.com/Steve-xmh/applemusic-like-lyrics); fluid background by [Kawarp](https://github.com/better-lyrics/kawarp); lyrics from [Better Lyrics](https://better-lyrics.boidu.dev), [BiniLyrics](https://lyrics.binimum.org), [Unison](https://unison.boidu.dev), [AMLL TTML DB](https://github.com/Steve-xmh/amll-ttml-db) and [LRCLIB](https://lrclib.net). Type: [Instrument Serif](https://fonts.google.com/specimen/Instrument+Serif) and [Geist](https://vercel.com/font), both OFL. Icons: [Material Symbols](https://fonts.google.com/icons). Built with [Electron](https://www.electronjs.org), [React](https://react.dev) and [Vite](https://vite.dev).
+
+The songs in the screenshots are made up; their covers are public-domain paintings and prints from [The Met's Open Access collection](https://www.metmuseum.org/about-the-met/policies-and-documents/open-access) — van Gogh, Hokusai and Seurat.

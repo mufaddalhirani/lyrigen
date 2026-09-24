@@ -26,6 +26,7 @@ export const THEMES: ThemeOption[] = [
 ]
 
 export const FONTS: ThemeOption[] = [
+  { id: 'editorial', label: 'Editorial', description: 'Instrument Serif headings, Geist text — the default.' },
   { id: 'system', label: 'System', description: 'Segoe UI Variable — the Windows default.' },
   { id: 'serif', label: 'Serif', description: 'Georgia. Lyrics read like a book.' },
   { id: 'rounded', label: 'Rounded', description: 'Nunito-style soft geometric sans.' },
@@ -41,7 +42,9 @@ export const LYRIC_MOTIONS: ThemeOption[] = [
   { id: 'none', label: 'Still', description: 'No movement at all. Lightest on the GPU.' },
 ]
 
-const KEYS = { theme: 'lyrigen-theme', font: 'lyrigen-font', motion: 'lyrigen-lyric-motion' } as const
+// The font key moved to v2 when Editorial became the default, so everyone
+// starts on it once; a choice made after that is remembered as before.
+const KEYS = { theme: 'lyrigen-theme', font: 'lyrigen-font-v2', motion: 'lyrigen-lyric-motion' } as const
 
 function read(key: string, fallback: string, allowed: ThemeOption[]) {
   try {
@@ -55,7 +58,7 @@ function read(key: string, fallback: string, allowed: ThemeOption[]) {
 export function loadAppearance() {
   return {
     theme: read(KEYS.theme, 'nocturne', THEMES),
-    font: read(KEYS.font, 'system', FONTS),
+    font: read(KEYS.font, 'editorial', FONTS),
     motion: read(KEYS.motion, 'glow', LYRIC_MOTIONS),
   }
 }

@@ -9,8 +9,9 @@
 /* ---------- Typography ---------- */
 
 :root {
-  --ui-font: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --ui-font: "Geist Variable", "Segoe UI Variable Text", "Segoe UI", sans-serif;
   --lyric-font: var(--ui-font);
+  --mono: "Geist Mono Variable", "Cascadia Mono", Consolas, monospace;
   /* Base text colour, so a light theme can invert it in one place. */
   --text: #f5f1f4;
   --chrome: rgba(14, 13, 19, .94);
@@ -21,6 +22,11 @@
 html .titlebar { background: var(--chrome); }
 html .sidebar { background: var(--sidebar); }
 html .sound-hero, html .welcome-hero, html .discover-hero, html .tool-hero { background-image: var(--hero); }
+
+html[data-font="system"] {
+  --ui-font: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --mono: "Cascadia Mono", Consolas, monospace;
+}
 
 html[data-font="serif"] {
   --ui-font: Georgia, "Times New Roman", serif;
@@ -220,13 +226,13 @@ html[data-lyric-motion="none"] .synced-lyrics * {
   text-align: justify;
   text-align-last: left;
   overflow-wrap: anywhere;
-  transition: opacity .6s ease;
+  transition: opacity 240ms var(--ease);
 }
 .brat-line.resting { opacity: .35; }
 .brat-word { display: inline-block; visibility: hidden; }
 .brat-word.out {
   visibility: visible;
-  animation: brat-fly .26s cubic-bezier(.16, .84, .3, 1) both;
+  animation: brat-fly 240ms var(--ease) both;
 }
 .brat-word.settled, .brat-lyrics.still .brat-word.out { animation: none; }
 /* In from far off one edge, a hair past the mark, then snap back onto it. */
@@ -241,6 +247,6 @@ html[data-lyric-motion="none"] .synced-lyrics * {
 .synced-lyrics [class*="interludeDots"] > :not(canvas) { display: none !important; }
 /* AMLL styles every child of the dots box as a small white disc; the canvas opts out. */
 .synced-lyrics [class*="interludeDots"] { height: auto !important; }
-.synced-lyrics [class*="interludeDots"] > canvas.lyric-gap-visualizer { display: block; width: 150px !important; height: 38px !important; aspect-ratio: auto !important; margin: 0 !important; border-radius: 0 !important; background: none !important; color: var(--amll-lp-color, #fff); opacity: .85; transition: opacity .3s ease; }
+.synced-lyrics [class*="interludeDots"] > canvas.lyric-gap-visualizer { display: block; width: 150px !important; height: 38px !important; aspect-ratio: auto !important; margin: 0 !important; border-radius: 0 !important; background: none !important; color: var(--amll-lp-color, #fff); opacity: .85; transition: opacity 240ms var(--ease); }
 /* Belt and braces: never shown while a line is actually being sung. */
 .synced-lyrics [data-gap="false"] [class*="interludeDots"] > canvas.lyric-gap-visualizer { opacity: 0; }

@@ -34,8 +34,8 @@ const toDeckTrack = (track: LibraryTrack): DeckTrack => ({ audioPath: track.audi
 // ---- waveform drawing -------------------------------------------------------
 
 const overviewCache = new WeakMap<TrackAnalysis, HTMLCanvasElement>()
-const SHADES = ['#f3d7ff', '#d7a9f7', '#a978e8', '#7048c9']
-const SHADES_B = ['#d8f6ff', '#9fdcf5', '#5aaee0', '#2f73c2']
+const SHADES = ['#ffe3c4', '#f8c38d', '#f0a35e', '#c47431']
+const SHADES_B = ['#d6f5ee', '#a0e2d2', '#5cc9b1', '#2c9480']
 
 function overviewImage(analysis: TrackAnalysis, width: number, height: number, deck: DeckId) {
   const cached = overviewCache.get(analysis)

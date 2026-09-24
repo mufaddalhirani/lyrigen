@@ -37,7 +37,7 @@
   text-align: left;
   /* Transform and opacity only: these still composite cheaply even when the
      app falls back to software rendering. */
-  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  transition: transform 160ms var(--ease);
 }
 
 .genre-mode-card:hover {

@@ -1,23 +1,10 @@
-<div align="center">
+<img src="docs/banner.png" alt="Lyric Studio — word- and syllable-timed lyrics, made on your computer" width="100%" />
 
-# Lyric Studio
+**Lyric Studio** makes synced lyrics on your own computer — word by word, or syllable by syllable for karaoke — for [Lyrigen](https://github.com/mufaddalhirani/lyrigen) or any player that reads TTML or LRC. Pick a song; its lyrics are found for you; press **Generate**, and a synced lyric file lands next to the song. Nothing is uploaded: the AI runs locally, on your graphics card if you have one.
 
-**Word- and syllable-timed lyrics, made on your own computer — for karaoke, for [Lyrigen](https://github.com/mufaddalhirani/lyrigen), or for any player that reads TTML or LRC.**
+**[Download (ZIP) →](https://github.com/mufaddalhirani/lyrics-studio/archive/refs/heads/main.zip)** &nbsp;·&nbsp; Python 3.10+ &nbsp;·&nbsp; Windows &nbsp;·&nbsp; NVIDIA GPU optional
 
-Pick a song. Its lyrics are found for you. Press **Generate**. A synced lyric file lands next to the song.
-Nothing is uploaded — the AI runs locally, on your graphics card if you have one.
-
-[![Download](https://img.shields.io/badge/Download-ZIP-8b7cff?style=for-the-badge&logo=github)](https://github.com/mufaddalhirani/lyrics-studio/archive/refs/heads/main.zip)
-&nbsp;
-[![Works with Lyrigen](https://img.shields.io/badge/Works%20with-Lyrigen-d18fa0?style=for-the-badge)](https://github.com/mufaddalhirani/lyrigen)
-
-![Python](https://img.shields.io/badge/python-3.10%2B-4a4a55)
-![Platform](https://img.shields.io/badge/platform-Windows-4a4a55)
-![GPU](https://img.shields.io/badge/GPU-optional%20(NVIDIA)-4a4a55)
-
-<img src="docs/screenshot.jpg" alt="Lyric Studio: choose a song, check the lyrics it found, choose word or syllable timing, generate" width="720" />
-
-</div>
+<img src="docs/screenshot.jpg" alt="Lyric Studio: the song, the lyrics it found, word or syllable timing, and Generate" width="720" />
 
 ---
 
