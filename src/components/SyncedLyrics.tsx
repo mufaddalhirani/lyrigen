@@ -2,85 +2,30 @@ import { memo, useCallback, useEffect, useRef, useState, type RefObject } from '
 import { LyricPlayer, type LyricPlayerRef } from '@applemusic-like-lyrics/react'
 import type { LyricLine } from '@applemusic-like-lyrics/lyric'
 import '@applemusic-like-lyrics/core/style.css'
+import type { BeatClock } from '../lib/beat/beatClock'
+import { InterludeVisualizer } from '../lib/beat/visualizer'
 
-interface Props { lines: LyricLine[]; audioRef: RefObject<HTMLAudioElement>; playing: boolean; offsetMs: number; visible: boolean; reducedMotion: boolean; onSeek: (time: number) => void; analyser?: RefObject<AnalyserNode | null> }
+interface Props { lines: LyricLine[]; audioRef: RefObject<HTMLAudioElement>; playing: boolean; offsetMs: number; visible: boolean; reducedMotion: boolean; onSeek: (time: number) => void; beats?: BeatClock; beatPulse?: boolean }
 
 /**
- * A small live visualizer in place of AMLL's three "interlude" dots.
+ * Between sung lines, AMLL leaves a gap in the lyric flow for its three
+ * "interlude" dots. The dots are hidden; the interlude visualizer (bars, the
+ * beat of the bar, and a count-in to the next line) is drawn in that gap.
  *
- * AMLL decides where the gap sits in the lyric flow and fades its dots
- * element in and out; the dots themselves are hidden and this canvas is drawn
- * inside that element instead, so it lands exactly where they did.
- *
- * Whether it shows is also checked against the song's real time. AMLL only
- * switches the dots on or off when it recalculates its layout, and its own
- * clock for them is advanced by frame deltas, so after a seek or a pause they
- * could stay on behind lines that were already being sung. Here the bars only
- * draw while no line is actually active.
+ * It shows only when both of these hold:
+ *  - AMLL has placed the gap for *this* interlude (its dots element carries
+ *    the `enabled` class). Otherwise the element sits wherever the last
+ *    interlude was — often over lines being sung now.
+ *  - The song's real time is between two lines. AMLL fades its dots on its own
+ *    frame-counted clock, which drifts after a seek or a pause.
+ * The gap is given a fixed size in CSS, so AMLL reserves exactly the room the
+ * visualizer needs from the first layout and nothing can spill onto a line.
  */
-class GapVisualizer {
-  private canvas = document.createElement('canvas')
-  private levels = new Float32Array(18)
-  private bins = new Uint8Array(128)
-  private phase = 0
-  constructor() {
-    this.canvas.className = 'lyric-gap-visualizer'
-    this.canvas.width = 180
-    this.canvas.height = 48
-    this.canvas.setAttribute('aria-hidden', 'true')
-  }
-  /** Puts the canvas inside AMLL's dots element (which AMLL keeps for the player's life). */
-  attach(root: HTMLElement | null | undefined) {
-    if (!root || this.canvas.isConnected) return
-    const dots = root.querySelector<HTMLElement>('[class*="interludeDots"]')
-    if (dots) dots.appendChild(this.canvas)
-  }
-  draw(analyser: AnalyserNode | null | undefined, playing: boolean, still: boolean, delta: number) {
-    const context = this.canvas.getContext('2d')
-    if (!context) return
-    const { width, height } = this.canvas
-    const count = this.levels.length
-    let live = false
-    if (analyser && playing && !still) {
-      if (this.bins.length !== analyser.frequencyBinCount) this.bins = new Uint8Array(analyser.frequencyBinCount)
-      analyser.getByteFrequencyData(this.bins)
-      live = this.bins.some(value => value > 0)
-    }
-    this.phase += delta / 1000
-    for (let i = 0; i < count; i++) {
-      let target: number
-      if (live) {
-        // Bass in the middle, treble towards both edges, over the useful 60% of
-        // the spectrum; higher bands are quieter, so they are lifted to match.
-        const band = Math.abs(i - (count - 1) / 2) / ((count - 1) / 2)
-        const from = Math.floor(this.bins.length * 0.6 * band ** 2)
-        const to = Math.max(from + 1, Math.floor(this.bins.length * 0.6 * Math.min(1, band + 2 / count) ** 2))
-        let sum = 0
-        for (let b = from; b < to && b < this.bins.length; b++) sum += this.bins[b]
-        target = Math.min(1, sum / (to - from) / 255 * (1 + band * 1.6))
-      } else {
-        // Paused, reduced motion, or no audio graph yet: a slow, quiet breath.
-        target = 0.18 + 0.12 * Math.sin(this.phase * (still ? 1 : 2.4) + i * 0.55)
-      }
-      this.levels[i] += (target - this.levels[i]) * (live ? 0.45 : 0.15)
-    }
-    context.clearRect(0, 0, width, height)
-    context.fillStyle = getComputedStyle(this.canvas).color || '#fff'
-    const gap = 4
-    const barWidth = (width - gap * (count - 1)) / count
-    for (let i = 0; i < count; i++) {
-      const h = Math.max(4, Math.min(1, this.levels[i] * 1.25) * height)
-      const x = i * (barWidth + gap)
-      const y = (height - h) / 2
-      context.beginPath()
-      context.roundRect(x, y, barWidth, h, barWidth / 2)
-      context.fill()
-    }
-  }
-  dispose() { this.canvas.remove() }
+function attachVisualizer(root: HTMLElement | null | undefined, visualizer: InterludeVisualizer) {
+  if (!root || visualizer.canvas.isConnected) return
+  root.querySelector<HTMLElement>('[class*="interludeDots"]')?.appendChild(visualizer.canvas)
 }
 
-/** Whether `now` (ms) falls between lines rather than inside one. */
 function inGap(lines: Array<{ start: number; end: number }>, now: number) {
   if (!lines.length) return false
   if (now < lines[0].start - 250) return true
@@ -141,11 +86,11 @@ function useLyricMotion() {
   return motion
 }
 
-export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playing, offsetMs, visible, reducedMotion, onSeek, analyser }: Props) {
-  const gapVisualizer = useRef<GapVisualizer | null>(null)
+export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playing, offsetMs, visible, reducedMotion, onSeek, beats, beatPulse = true }: Props) {
+  const gapVisualizer = useRef<InterludeVisualizer | null>(null)
   const spans = useRef<Array<{ start: number; end: number }>>([])
   spans.current = lines.filter(line => !line.isBG).map(line => ({ start: line.startTime, end: line.endTime })).sort((a, b) => a.start - b.start)
-  useEffect(() => { gapVisualizer.current = new GapVisualizer(); return () => { gapVisualizer.current?.dispose(); gapVisualizer.current = null } }, [])
+  useEffect(() => { gapVisualizer.current = new InterludeVisualizer('lyric-gap-visualizer'); return () => { gapVisualizer.current?.canvas.remove(); gapVisualizer.current = null } }, [])
   const ref = useRef<LyricPlayerRef>(null)
   const motion = useLyricMotion()
   const still = motion === 'none' || reducedMotion
@@ -166,6 +111,10 @@ export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playin
     let timer: ReturnType<typeof setTimeout> | undefined
     let settleUntil = 0
     let last = performance.now()
+    // The visualizer waits until AMLL's lines have finished moving into place:
+    // a moment into each gap, and a moment after any seek.
+    let gapSince = Infinity
+    let seekedAt = 0
     const tick = () => {
       timer = undefined
       if (!visible || document.hidden) return
@@ -175,17 +124,28 @@ export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playin
       player?.setCurrentTime(songTime)
       player?.update(Math.min(100, now - last))
       const wrapper = ref.current?.wrapperEl
-      if (wrapper) {
-        const gap = inGap(spans.current, songTime)
+      const visualizer = gapVisualizer.current
+      if (wrapper && visualizer) {
+        const inside = inGap(spans.current, songTime)
+        if (!inside) gapSince = Infinity
+        else if (gapSince === Infinity) gapSince = now
+        const gap = inside && now - gapSince > 450 && now - seekedAt > 700
         if (wrapper.dataset.gap !== String(gap)) wrapper.dataset.gap = String(gap)
-        gapVisualizer.current?.attach(wrapper)
-        if (gap) gapVisualizer.current?.draw(analyser?.current, !audio?.paused, reducedMotion, now - last)
+        attachVisualizer(wrapper, visualizer)
+        const sample = beats?.sample()
+        // The sung line moves a little with each beat (transform only, in CSS).
+        const pulse = sample && beatPulse && !still ? sample.pulse : 0
+        wrapper.style.setProperty('--beat', pulse.toFixed(3))
+        if (gap && sample) {
+          const next = spans.current.find(line => line.start > songTime)
+          visualizer.draw(sample, { nextLineIn: next ? (next.start - songTime) / 1000 / (audio?.playbackRate || 1) : null }, now - last, still)
+        }
       }
       last = now
       if (!audio?.paused || now < settleUntil) timer = setTimeout(tick, reducedMotion ? 100 : 33)
     }
     const start = () => { settleUntil = performance.now() + 5500; if (!timer) tick() }
-    const seeked = () => { sync(true); start() }
+    const seeked = () => { seekedAt = performance.now(); gapSince = Infinity; sync(true); start() }
     const scrolled = () => { setBrowsing(true); start() }
     wake.current = start
     sync(true)
@@ -204,7 +164,7 @@ export const SyncedLyrics = memo(function SyncedLyrics({ lines, audioRef, playin
       element?.removeEventListener('wheel', scrolled)
       element?.removeEventListener('pointerdown', scrolled)
     }
-  }, [analyser, audioRef, lines, offsetMs, playing, reducedMotion, sync, visible])
+  }, [audioRef, beatPulse, beats, lines, offsetMs, playing, reducedMotion, still, sync, visible])
 
   return <div className="synced-lyrics" aria-label="Synced lyrics" hidden={!visible}>
     <LyricPlayer ref={ref} className="synced-lyrics-stage" lyricLines={lines} disabled playing={playing} alignAnchor="center" alignPosition={0.5} enableSpring={!still} enableBlur={motion === 'blur' && !reducedMotion} enableScale={!still} wordFadeWidth={still ? 1 : 0.45} onLyricLineClick={event => {

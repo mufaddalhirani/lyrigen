@@ -12,7 +12,9 @@
         height: 100%;
         background-color: #000;
         color: white;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        /* The theme owns the typeface (Sound Lab → Typeface); this is only the
+           fallback for the moment before the stylesheet loads. */
+        font-family: var(--ui-font, "Segoe UI Variable Text", "Segoe UI", sans-serif);
       }
     </style>
     <script>

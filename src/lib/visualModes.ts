@@ -5,11 +5,12 @@ import type { ThemeOption } from './themes'
  * from Sound Lab → Appearance; both write here, and the player follows the
  * change straight away through a window event.
  */
-export type VisualMode = 'balanced' | 'lyrics' | 'cover' | 'vinyl' | 'visualizer' | 'brat'
+export type VisualMode = 'balanced' | 'lyrics' | 'kinetic' | 'cover' | 'vinyl' | 'visualizer' | 'brat'
 
 export const VISUAL_MODES: Array<ThemeOption & { id: VisualMode }> = [
   { id: 'balanced', label: 'Balanced', description: 'Cover, details and lyrics together' },
   { id: 'lyrics', label: 'Lyrics only', description: 'A calm, focused lyric view' },
+  { id: 'kinetic', label: 'Kinetic', description: 'Words land as they are sung, held notes stand out, the line moves with the beat' },
   { id: 'cover', label: 'Cover only', description: 'Large album artwork and details' },
   { id: 'vinyl', label: 'Spinning vinyl', description: 'Album art as a gentle record' },
   { id: 'visualizer', label: 'Visualizer', description: 'Lightweight bars that follow the music' },

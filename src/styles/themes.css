@@ -242,11 +242,3 @@ html[data-lyric-motion="none"] .synced-lyrics * {
   100% { transform: none; }
 }
 
-/* ---------- Interlude visualizer (SyncedLyrics.tsx) ---------- */
-/* AMLL's three dots make way for live bars drawn in the same spot. */
-.synced-lyrics [class*="interludeDots"] > :not(canvas) { display: none !important; }
-/* AMLL styles every child of the dots box as a small white disc; the canvas opts out. */
-.synced-lyrics [class*="interludeDots"] { height: auto !important; }
-.synced-lyrics [class*="interludeDots"] > canvas.lyric-gap-visualizer { display: block; width: 150px !important; height: 38px !important; aspect-ratio: auto !important; margin: 0 !important; border-radius: 0 !important; background: none !important; color: var(--amll-lp-color, #fff); opacity: .85; transition: opacity 240ms var(--ease); }
-/* Belt and braces: never shown while a line is actually being sung. */
-.synced-lyrics [data-gap="false"] [class*="interludeDots"] > canvas.lyric-gap-visualizer { opacity: 0; }

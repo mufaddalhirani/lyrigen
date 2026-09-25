@@ -100,19 +100,68 @@ function findTempo(onset: Float32Array): { bpm: number | null; firstBeat: number
   if (!bestLag || bestScore <= 0) return { bpm: null, firstBeat: 0 }
   const coarse = 60 * FRAME_RATE / bestLag
 
-  // Comb search: tempo in fine steps around the coarse answer, every phase.
-  let best = { bpm: coarse, phase: 0, score: -Infinity }
-  for (let bpm = coarse * 0.97; bpm <= coarse * 1.03; bpm += 0.02) {
-    const period = 60 * FRAME_RATE / bpm
-    for (let phase = 0; phase < period; phase += 1) {
-      let score = 0
-      for (let position = phase; position < frames - 1; position += period) {
-        const index = Math.round(position)
-        score += onset[index] + 0.5 * onset[index + 1]
-      }
-      if (score > best.score) best = { bpm, phase, score }
-    }
+  // Autocorrelation finds *a* periodicity, which is often a relative of the
+  // beat: half, double, or 2/3 of it (syncopated songs near 170 BPM came out
+  // at ~115). Every metrical relative is tried, and each is scored by how well
+  // it explains the song's repetition at three levels at once — its beat, two
+  // beats, and a bar of four. The true beat lines up at all three; a 2/3 or 4/3
+  // relative lands on 1.5, 3 and 6 beats, which a bar never repeats on.
+  // (Half-time can still win a close call, which is harmless: every other
+  // beat is still on the beat.)
+  // Mean removed first: dense songs sit on a large constant floor that
+  // otherwise drowns the differences between candidate tempos.
+  const maxLag = Math.min(span - 1, Math.round(FRAME_RATE * 4 * 60 / 60) + 2)
+  let mean = 0
+  for (let i = start; i < start + span; i++) mean += onset[i]
+  mean /= span
+  const acf = new Float32Array(maxLag + 1)
+  for (let lag = 1; lag <= maxLag; lag++) {
+    let sum = 0
+    for (let i = start; i < start + span - lag; i++) sum += (onset[i] - mean) * (onset[i + lag] - mean)
+    acf[lag] = sum / (span - lag)
   }
+  const at = (lag: number) => {
+    if (lag < 1 || lag >= maxLag) return 0
+    const low = Math.floor(lag), t = lag - low
+    // The best nearby value: tempo estimates are never exact to a frame.
+    return Math.max(acf[low] * (1 - t) + acf[low + 1] * t, acf[low - 1] ?? 0, acf[low + 2] ?? 0)
+  }
+  const candidates = [1, 2, 0.5, 1.5, 2 / 3, 4 / 3, 0.75].map(ratio => coarse * ratio).filter(bpm => bpm >= 60 && bpm <= 200)
+  let chosen = coarse, chosenScore = -Infinity
+  for (const candidate of candidates) {
+    const period = 60 * FRAME_RATE / candidate
+    const prior = Math.exp(-0.5 * (Math.log2(candidate / 120) / 0.9) ** 2)
+    const score = (at(period) + 0.6 * at(2 * period) + 0.6 * at(4 * period)) * prior
+    if (score > chosenScore) { chosenScore = score; chosen = candidate }
+  }
+  let best = { ...combFit(onset, chosen, 0.1), contrast: 0 }
+  best = { ...combFit(onset, best.bpm, 0.02, 0.012), contrast: 0 }
   const bpm = Math.round(best.bpm * 100) / 100
   return { bpm, firstBeat: best.phase / FRAME_RATE }
+}
+
+/**
+ * The grid near `bpm` (±`span`) whose beats hit the most onset: its tempo,
+ * phase, and contrast — mean onset on the beats over mean onset on the
+ * points halfway between them.
+ */
+function combFit(onset: Float32Array, bpm: number, step: number, span = 0.03) {
+  const frames = onset.length
+  let best = { bpm, phase: 0, score: -Infinity, contrast: 0 }
+  for (let tempo = bpm * (1 - span); tempo <= bpm * (1 + span); tempo += step) {
+    const period = 60 * FRAME_RATE / tempo
+    for (let phase = 0; phase < period; phase += 1) {
+      let on = 0, off = 0, count = 0
+      for (let position = phase; position < frames - 1; position += period) {
+        const index = Math.round(position)
+        on += onset[index] + 0.5 * onset[index + 1]
+        const middle = Math.round(position + period / 2)
+        if (middle < frames - 1) off += onset[middle] + 0.5 * onset[middle + 1]
+        count++
+      }
+      const score = on / Math.max(1, count)
+      if (score > best.score) best = { bpm: tempo, phase, score, contrast: (on + 1e-6) / (off + 1e-6) }
+    }
+  }
+  return best
 }

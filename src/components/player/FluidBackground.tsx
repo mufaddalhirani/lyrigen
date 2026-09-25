@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, type RefObject } from 'react'
 import { Kawarp } from '@kawarp/core'
+import type { BeatClock } from '../../lib/beat/beatClock'
 
 /**
  * Fluid artwork background: the cover blurred and slowly warped, like Apple
@@ -47,13 +48,15 @@ type Props = {
   playing: boolean
   reducedMotion: boolean
   analyser: RefObject<AnalyserNode | null>
+  /** When given, beats come from the song's beat grid instead of a loudness guess. */
+  beats?: BeatClock
 }
 
-export const FluidBackground = memo(function FluidBackground({ coverUrl, settings, playing, reducedMotion, analyser }: Props) {
+export const FluidBackground = memo(function FluidBackground({ coverUrl, settings, playing, reducedMotion, analyser, beats }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const kawarpRef = useRef<Kawarp | null>(null)
-  const live = useRef({ playing, settings, reducedMotion })
-  live.current = { playing, settings, reducedMotion }
+  const live = useRef({ playing, settings, reducedMotion, beats })
+  live.current = { playing, settings, reducedMotion, beats }
 
   // One renderer for the life of the player; covers crossfade inside it.
   useEffect(() => {
@@ -91,8 +94,11 @@ export const FluidBackground = memo(function FluidBackground({ coverUrl, setting
       if (now - last < interval) return
       last = now
 
+      const clock = live.current.beats
       const node = analyser.current
-      if (current.reactive && isPlaying && node && !still) {
+      if (current.reactive && isPlaying && clock?.grid && !still) {
+        pulse = Math.max(pulse * 0.86, clock.sample().pulse)
+      } else if (current.reactive && isPlaying && node && !still) {
         node.getByteFrequencyData(bins)
         const bass = (bins[0] + bins[1] + bins[2] + bins[3]) / (4 * 255)
         average = average ? average * 0.94 + bass * 0.06 : bass

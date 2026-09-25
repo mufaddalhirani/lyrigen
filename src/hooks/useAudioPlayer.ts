@@ -44,6 +44,9 @@ export function useAudioPlayer(visualsEnabled = true) {
   const analysisDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  // A second, sharper analyser for visuals that must show individual beats:
+  // more frequency detail and little smoothing, so a kick reads as a kick.
+  const vizAnalyserRef = useRef<AnalyserNode | null>(null)
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null)
   const waveShaperRef = useRef<WaveShaperNode | null>(null)
   const driveAmountRef = useRef(0)
@@ -144,6 +147,12 @@ export function useAudioPlayer(visualsEnabled = true) {
       const normalPath = context.createGain()
       tail.connect(normalPath)
       normalPath.connect(analyser)
+      const vizAnalyser = context.createAnalyser()
+      vizAnalyser.fftSize = 2048
+      vizAnalyser.smoothingTimeConstant = 0.5
+      vizAnalyser.minDecibels = -90
+      vizAnalyser.maxDecibels = -18
+      normalPath.connect(vizAnalyser)
 
       // A free, local center-cancel path for karaoke practice. It works best on
       // stereo masters where lead vocals are mixed in the center.
@@ -162,6 +171,7 @@ export function useAudioPlayer(visualsEnabled = true) {
       right.connect(merger, 0, 1)
       merger.connect(karaokePath)
       karaokePath.connect(analyser)
+      karaokePath.connect(vizAnalyser)
 
       const compressor = context.createDynamicsCompressor()
       analyser.connect(compressor)
@@ -169,6 +179,7 @@ export function useAudioPlayer(visualsEnabled = true) {
 
       audioContextRef.current = context
       analyserRef.current = analyser
+      vizAnalyserRef.current = vizAnalyser
       sourceRef.current = source
       waveShaperRef.current = waveShaper
       filtersRef.current = filters
@@ -454,6 +465,8 @@ export function useAudioPlayer(visualsEnabled = true) {
     audioRef,
     /** The analyser after EQ and genre mode, for visuals that react to the music. */
     analyserRef,
+    /** Sharp analyser for beat-level visuals (lyrics visualizer, kinetic lyrics). */
+    vizAnalyserRef,
     isPlaying,
     currentTimeMs,
     durationMs,

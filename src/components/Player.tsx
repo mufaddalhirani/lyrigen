@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { type LyricLine } from '@applemusic-like-lyrics/lyric'
 import { BratLyrics } from './BratLyrics'
+import { KineticLyrics } from './KineticLyrics'
+import { BeatClock, loadBeatGrid } from '../lib/beat/beatClock'
 import { VISUAL_MODES, VISUAL_MODE_EVENT, loadVisualMode, saveVisualMode, type VisualMode } from '../lib/visualModes'
 import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -147,6 +149,7 @@ export function Player({
   const {
     audioRef,
     analyserRef,
+    vizAnalyserRef,
     isPlaying,
     currentTimeMs,
     durationMs,
@@ -212,6 +215,18 @@ export function Player({
   const [reducedMotion, setReducedMotion] = useState(() => localStorage.getItem('lyrigen-reduced-motion') === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches)
   const lookupGeneration = useRef(0)
   const [fluid, setFluid] = useState<FluidSettings>(loadFluidSettings)
+  // The song's beats, for everything that moves with the music.
+  const beatClock = useMemo(() => new BeatClock(() => audioRef.current, () => vizAnalyserRef.current), [audioRef, vizAnalyserRef])
+  useEffect(() => { try { if (localStorage.getItem('lyrigen-debug') === '1') (window as unknown as { lyrigenBeats: BeatClock }).lyrigenBeats = beatClock } catch { /* storage blocked */ } }, [beatClock])
+  const [beatPulse, setBeatPulse] = useState(() => { try { return localStorage.getItem('lyrigen-beat-pulse') !== 'off' } catch { return true } })
+  const toggleBeatPulse = () => setBeatPulse(on => { try { localStorage.setItem('lyrigen-beat-pulse', on ? 'off' : 'on') } catch { /* not remembered */ } return !on })
+  useEffect(() => {
+    beatClock.grid = null
+    let active = true
+    // A moment after the song starts, so the analysis never competes with it.
+    const timer = window.setTimeout(() => { void loadBeatGrid(audioPath).then(grid => { if (active) beatClock.grid = grid }).catch(() => undefined) }, 1500)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [audioPath, beatClock])
   const changeFluid = (patch: Partial<FluidSettings>) => setFluid(current => { const next = { ...current, ...patch }; saveFluidSettings(next); return next })
   const [visualMode, setVisualModeState] = useState<VisualMode>(loadVisualMode)
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false)
@@ -574,7 +589,7 @@ export function Player({
     <div className={`app-shell player-shell visual-mode-${visualMode} ${fluid.enabled && coverUrl && visualMode !== 'brat' ? 'has-fluid' : ''} ${isPlaying ? 'is-playing' : 'is-paused'} ${reducedMotion ? 'reduce-motion' : ''}`} ref={setVisualTarget}>
       <div className="player-background">
         {videoEnabled && videoUrl && <video ref={videoRef} className="matched-video" src={videoUrl} muted playsInline />}
-        {coverUrl && fluid.enabled && visualMode !== 'brat' ? <FluidBackground coverUrl={coverUrl} settings={fluid} playing={isPlaying} reducedMotion={reducedMotion} analyser={analyserRef} />
+        {coverUrl && fluid.enabled && visualMode !== 'brat' ? <FluidBackground coverUrl={coverUrl} settings={fluid} playing={isPlaying} reducedMotion={reducedMotion} analyser={analyserRef} beats={beatClock} />
           : coverUrl && <img src={coverUrl} className="cover-bloom" alt="" />}
         <div className="reactive-wave wave-a" /><div className="reactive-wave wave-b" />
         <div className="background-veil" />
@@ -619,8 +634,9 @@ export function Player({
           <div className="lyrics-viewport">
             {lyricLines.length > 0 ? (
               timing === 'unsynced' ? <div className="plain-lyrics">{lyricLines.map((line, index) => <p key={index}>{line.words.map(word => word.word).join('')}</p>)}</div> :
+              visualMode === 'kinetic' ? <KineticLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} reducedMotion={reducedMotion} beats={beatClock} beatPulse={beatPulse} title={metadata?.title || title} artist={displayArtist} onSeek={seek} /> :
               visualMode === 'brat' ? <BratLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} reducedMotion={reducedMotion} title={displayTitle} onSeek={seek} /> :
-              <SyncedLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} visible={visualMode !== 'cover' && visualMode !== 'vinyl'} reducedMotion={reducedMotion} onSeek={seek} analyser={analyserRef} />
+              <SyncedLyrics lines={lyricLines} audioRef={audioRef} playing={isPlaying} offsetMs={lyricOffsetMs} visible={visualMode !== 'cover' && visualMode !== 'vinyl'} reducedMotion={reducedMotion} onSeek={seek} beats={beatClock} beatPulse={beatPulse} />
             ) : (
               <div className="lyrics-empty"><div className="empty-quote">“</div><h3>{lookupBusy ? 'Searching for lyrics…' : 'No synced lyrics yet'}</h3><p>Lyrigen checks matching local files first, then Unison (exact match for YouTube downloads), the AMLL TTML DB and LRCLIB.</p><button className="inline-glass-button" disabled={lookupBusy} onClick={() => void findOnlineLyrics()}>{lookupBusy ? 'Searching…' : 'Try online again'}</button><button className="inline-glass-button" onClick={() => setFinderOpen(true)}>Browse lyrics…</button></div>
             )}
@@ -644,6 +660,7 @@ export function Player({
           <div className="setting-section fluid-settings">
             <button className={fluid.enabled ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changeFluid({ enabled: !fluid.enabled })}><span><strong>Fluid background</strong><small>The cover, blurred and slowly warped — like Apple Music</small></span><i /></button>
             {fluid.enabled && <>
+              <button className={beatPulse ? 'setting-toggle on' : 'setting-toggle'} onClick={toggleBeatPulse}><span><strong>Lyrics move with the beat</strong><small>The sung line kicks on each beat, from the song's beat grid</small></span><i /></button>
               <button className={fluid.reactive ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changeFluid({ reactive: !fluid.reactive })}><span><strong>Pulse with the beat</strong><small>Flows faster and swells a little on each kick</small></span><i /></button>
               {([['opacity', 'Strength', 0.2, 1, 0.05], ['warp', 'Warp', 0, 3, 0.1], ['speed', 'Flow speed', 0, 3, 0.1], ['saturation', 'Colour', 0.5, 3, 0.1]] as const).map(([key, label, min, max, step]) =>
                 <label key={key} className="fluid-slider"><span>{label}<b>{fluid[key].toFixed(key === 'opacity' ? 2 : 1)}</b></span><input type="range" min={min} max={max} step={step} value={fluid[key]} onChange={event => changeFluid({ [key]: Number(event.target.value) })} /></label>)}

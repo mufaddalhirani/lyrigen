@@ -167,3 +167,61 @@ html[data-font="system"], html[data-font="serif"], html[data-font="rounded"], ht
 .control-dock.liquid-panel { border-radius: 4px; border-color: var(--rule-strong); background: rgba(14, 13, 17, .82); box-shadow: 0 12px 34px rgba(0, 0, 0, .35); }
 .control-dock .transport-controls button:not(.play-button) { border-radius: 3px; }
 .visual-mode-brat .lyrics-column.liquid-panel { background: transparent; }
+
+/* ---------- Interlude visualizer (SyncedLyrics.tsx, lib/beat/visualizer.ts) ----------
+   AMLL keeps a gap in the lyric flow for its interlude dots. The dots go; the
+   gap gets a fixed size, so AMLL reserves exactly this much room from its very
+   first layout, and the visualizer is drawn inside it. It shows only while
+   AMLL has placed the gap for this interlude (`enabled`) *and* the song is
+   really between lines (`data-gap`). */
+.synced-lyrics [class*="interludeDots"] { width: 220px !important; height: 64px !important; padding: 0 !important; gap: 0 !important; }
+.synced-lyrics [class*="interludeDots"] > :not(canvas) { display: none !important; }
+.synced-lyrics [class*="interludeDots"] > canvas.lyric-gap-visualizer {
+  position: absolute; inset: 0; display: block; width: 100% !important; height: 100% !important; aspect-ratio: auto !important;
+  margin: 0 !important; border-radius: 0 !important; background: none !important;
+  color: var(--amll-lp-color, #fff); --viz-accent: var(--accent-strong);
+  opacity: 0; transition: opacity 200ms var(--ease);
+}
+.synced-lyrics [data-gap="true"] [class*="interludeDots"][class*="enabled"] > canvas.lyric-gap-visualizer { opacity: .9; }
+
+/* The sung line moves with the beat: --beat is set every frame from the beat clock. */
+.synced-lyrics [class*="lyricLine"][class*="active"] > [class*="lyricMainLine"] { transform: translateY(calc(var(--beat, 0) * -3px)) scale(calc(1 + var(--beat, 0) * .018)); transform-origin: left center; }
+
+/* ---------- Kinetic mode (KineticLyrics.tsx) ---------- */
+.visual-mode-kinetic .now-playing-layout { grid-template-columns: 1fr; }
+.visual-mode-kinetic .artwork-column { display: none; }
+.visual-mode-kinetic .lyrics-column { width: 100%; max-width: 1200px; height: min(70vh, 720px); margin: 0 auto; }
+.visual-mode-kinetic .lyrics-column.liquid-panel { border-color: transparent; background: rgba(12, 11, 14, .5); }
+.visual-mode-kinetic .lyrics-heading { display: none; }
+.visual-mode-kinetic .lyrics-viewport { height: 100%; -webkit-mask-image: none; mask-image: none; }
+
+.kinetic { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100%; padding: 4px 8px; color: var(--text, #f4eff2); }
+.kinetic-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); color: var(--muted); font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.kinetic-head strong { color: var(--text, #f4eff2); font: 400 26px/1 var(--display-font); letter-spacing: -.01em; text-transform: none; }
+.kinetic-tempo { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+.kinetic-beats { display: inline-flex; gap: 6px; }
+.kinetic-beats i { width: 10px; height: 10px; background: var(--text, #f4eff2); opacity: .16; transition: opacity 120ms var(--ease); }
+.kinetic-beats i:first-child { background: var(--accent-strong); }
+.kinetic-beats i.on { opacity: 1; }
+.kinetic-prev, .kinetic-next { min-height: 1.35em; margin: 0; overflow: hidden; color: var(--muted); font: 500 clamp(15px, 1.35vw, 20px)/1.35 var(--ui-font); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.kinetic-prev { margin-top: 20px; opacity: .6; }
+.kinetic-next { margin-bottom: 4px; }
+.kinetic-next:not(:empty)::before { content: 'Next'; margin-right: 12px; color: var(--accent-strong); font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; vertical-align: 2px; }
+.kinetic-stage { position: relative; display: grid; align-content: center; min-height: 0; }
+.kinetic-line {
+  margin: 0; font-weight: 640; line-height: 1.06; letter-spacing: -.022em; overflow-wrap: anywhere;
+  transform: translateY(calc(var(--kick, 0) * -7px)) scale(calc(1 + var(--kick, 0) * .012)); transform-origin: left center;
+  animation: kinetic-in 220ms var(--ease) both;
+}
+.kinetic-line.duet { text-align: right; transform-origin: right center; }
+.kinetic.gap .kinetic-line { opacity: .16; transition: opacity 240ms var(--ease); }
+@keyframes kinetic-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+.kw { display: inline-block; opacity: .2; transform: translateY(.16em); transition: opacity 170ms var(--ease), transform 220ms var(--ease); }
+.kw.on { opacity: 1; transform: none; }
+.kw.em { position: relative; padding: 0 .04em; font: italic 400 1.22em/.9 var(--display-font); letter-spacing: -.01em; }
+.kw.em.on { color: var(--accent-strong); }
+.kw .kbar { position: absolute; left: .04em; right: .04em; bottom: -.08em; height: max(3px, .045em); background: currentColor; transform-origin: left center; transform: scaleX(var(--p, 0)); }
+.kinetic-bg { display: block; margin-top: .45em; color: var(--ink-soft); font: italic 400 .4em/1.2 var(--display-font); letter-spacing: 0; }
+.kinetic-viz { position: absolute; top: 50%; left: 0; width: min(520px, 80%); height: auto; aspect-ratio: 520 / 150; color: var(--text, #f4eff2); --viz-accent: var(--accent-strong); opacity: 0; transform: translateY(-50%); transition: opacity 220ms var(--ease); pointer-events: none; }
+.kinetic.gap .kinetic-viz { opacity: 1; }
+.kinetic.still .kw, .kinetic.still .kinetic-line { transition: none; animation: none; }
