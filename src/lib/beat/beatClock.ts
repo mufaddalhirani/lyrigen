@@ -87,6 +87,8 @@ export class BeatClock {
   private bassAverage = 0.25
   private lastBeatIndex = Number.NaN
   private strength = 0.6
+  /** 0–1: how steadily real kicks have been landing on the grid lately. */
+  private presence = 0
   private previousBass = 0
   private liveBeatAt = -Infinity
   private liveCount = 0
@@ -126,14 +128,20 @@ export class BeatClock {
       const phase = position - index
       if (index !== this.lastBeatIndex && phase < 0.35) {
         this.lastBeatIndex = index
-        // How hard this beat hits, relative to the song's own bass.
-        this.strength = Math.max(0.25, Math.min(1, bass / Math.max(0.08, this.bassAverage * 1.25)))
+        // How hard this beat hits, relative to the song's own bass. No audible
+        // kick, no pulse: quiet intros, ballads and breakdowns stay still
+        // instead of nodding to a tempo nobody hears.
+        const ratio = bass / Math.max(0.08, this.bassAverage)
+        this.strength = Math.max(0, Math.min(1, (ratio - 1.08) / 0.45))
+        // Trust builds over a run of real kicks and drains when they stop, so
+        // one stray bass note does not make the words jump.
+        this.presence = this.presence * 0.8 + (this.strength > 0.15 ? 0.2 : 0)
       }
       const barBeat = ((index - this.grid.downbeat) % 4 + 4) % 4
       const accent = barBeat === 0 ? 1 : 0.7
       value = {
         hasGrid: true, bpm: this.grid.bpm * rate, beatSeconds: beatSeconds / rate, index, phase, barBeat,
-        pulse: playing ? Math.exp(-phase * 6) * this.strength * accent : 0,
+        pulse: playing ? Math.exp(-phase * 6) * this.strength * accent * Math.min(1, Math.max(0, (this.presence - 0.35) / 0.4)) : 0,
         strength: this.strength, bass, level, spectrum,
       }
     } else {
