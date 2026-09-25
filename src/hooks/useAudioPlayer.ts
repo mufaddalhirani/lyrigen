@@ -52,6 +52,12 @@ export function useAudioPlayer(visualsEnabled = true) {
   const driveAmountRef = useRef(0)
   const filtersRef = useRef<BiquadFilterNode[]>([])
   const normalPathRef = useRef<GainNode | null>(null)
+  // Song transitions: the current song's own fader, and a second, hidden
+  // player that takes over an ending song so it can fade out under the next.
+  const trackGainRef = useRef<GainNode | null>(null)
+  const ghostRef = useRef<{ audio: HTMLAudioElement; gain: GainNode; timer: number } | null>(null)
+  const pendingFadeInRef = useRef(0)
+  const handedOffRef = useRef(false)
   const karaokePathRef = useRef<GainNode | null>(null)
   const compressorRef = useRef<DynamicsCompressorNode | null>(null)
   const lastTimeRenderRef = useRef(0)
@@ -125,11 +131,22 @@ export function useAudioPlayer(visualsEnabled = true) {
         return filter
       })
 
-      let tail: AudioNode = source
+      const trackGain = context.createGain()
+      source.connect(trackGain)
+      let tail: AudioNode = trackGain
       for (const filter of filters) {
         tail.connect(filter)
         tail = filter
       }
+      // The outgoing song in a crossfade goes through the same EQ and effects.
+      const ghostAudio = new Audio()
+      ghostAudio.preload = 'auto'
+      const ghostGain = context.createGain()
+      ghostGain.gain.value = 0
+      context.createMediaElementSource(ghostAudio).connect(ghostGain)
+      ghostGain.connect(filters[0])
+      trackGainRef.current = trackGain
+      ghostRef.current = { audio: ghostAudio, gain: ghostGain, timer: 0 }
 
       const waveShaper = context.createWaveShaper()
       waveShaper.oversample = driveAmountRef.current ? '2x' : 'none'
@@ -235,19 +252,113 @@ export function useAudioPlayer(visualsEnabled = true) {
     audioContextRef.current?.close().catch(() => undefined)
   }, [])
 
+  /** Silences a song still fading out, when the person pauses or the DJ takes over. */
+  const stopGhost = useCallback(() => {
+    const ghost = ghostRef.current
+    if (!ghost) return
+    window.clearTimeout(ghost.timer)
+    ghost.gain.gain.cancelScheduledValues(0)
+    ghost.gain.gain.value = 0
+    ghost.audio.pause()
+  }, [])
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current
     if (!audio) return
     if (audio.paused) ensureAudioAnalysis().then(() => audio.play()).catch(console.error)
-    else audio.pause()
-  }, [ensureAudioAnalysis])
+    else { stopGhost(); audio.pause() }
+  }, [ensureAudioAnalysis, stopGhost])
 
   const play = useCallback(() => {
     const audio = audioRef.current
     if (audio) ensureAudioAnalysis().then(() => audio.play()).catch(console.error)
   }, [ensureAudioAnalysis])
 
-  const pause = useCallback(() => audioRef.current?.pause(), [])
+  const pause = useCallback(() => { stopGhost(); audioRef.current?.pause() }, [stopGhost])
+
+  // ---- Song transitions --------------------------------------------------
+  // Equal-power curves: two unrelated songs crossfaded linearly dip in the
+  // middle; sine/cosine keeps the loudness level through the blend.
+  const glide = useCallback((param: AudioParam, to: number, seconds: number) => {
+    const context = audioContextRef.current
+    if (!context) return
+    const start = context.currentTime
+    const from = param.value
+    param.cancelScheduledValues(start)
+    param.setValueAtTime(from, start)
+    if (seconds <= 0.02) { param.setValueAtTime(to, start + 0.005); return }
+    const curve = new Float32Array(64)
+    for (let i = 0; i < curve.length; i++) {
+      const x = i / (curve.length - 1)
+      curve[i] = to > from ? from + (to - from) * Math.sin(x * Math.PI / 2) : to + (from - to) * Math.cos(x * Math.PI / 2)
+    }
+    param.setValueCurveAtTime(curve, start + 0.01, seconds)
+  }, [])
+
+  /**
+   * Crossfade: the ending song moves to the hidden player, lined up to the
+   * same moment, and fades out there over `seconds`; the main player is then
+   * free for the next song, which fades in when it starts. False when the
+   * hand-over could not happen (the song then just ends as before).
+   */
+  const handOff = useCallback(async (seconds: number) => {
+    const audio = audioRef.current
+    const ghost = ghostRef.current
+    const gain = trackGainRef.current
+    if (!audio || !ghost || !gain || audio.paused) return false
+    const other = ghost.audio
+    window.clearTimeout(ghost.timer)
+    if (other.src !== audio.src) other.src = audio.src
+    other.playbackRate = audio.playbackRate
+    other.preservesPitch = audio.preservesPitch
+    other.volume = audio.volume
+    other.muted = audio.muted
+    const seekTo = (time: number) => new Promise<boolean>(resolve => {
+      const done = (ok: boolean) => { other.removeEventListener('seeked', onSeeked); window.clearTimeout(timer); resolve(ok) }
+      const onSeeked = () => done(true)
+      const timer = window.setTimeout(() => done(false), 1500)
+      other.addEventListener('seeked', onSeeked)
+      other.currentTime = time
+    })
+    // Seek once, then again to make up for the time the first one took.
+    if (!await seekTo(audio.currentTime + 0.1) || audio.paused) return false
+    if (Math.abs(other.currentTime - audio.currentTime) > 0.03 && !await seekTo(audio.currentTime + 0.02)) return false
+    try { await other.play() } catch { return false }
+    glide(gain.gain, 0, 0.06)
+    glide(ghost.gain.gain, 1, 0.06)
+    window.setTimeout(() => glide(ghost.gain.gain, 0, seconds), 80)
+    ghost.timer = window.setTimeout(() => other.pause(), seconds * 1000 + 400)
+    handedOffRef.current = true
+    pendingFadeInRef.current = seconds
+    return true
+  }, [glide])
+
+  /**
+   * Call just before the main player switches to another song. After a
+   * crossfade hand-over it only lets the next song fade in; on a skip or a
+   * click it dips the playing song out in a blink instead of cutting it.
+   */
+  const beforeSwitch = useCallback(async (smooth: boolean) => {
+    const audio = audioRef.current
+    const gain = trackGainRef.current
+    if (handedOffRef.current) { handedOffRef.current = false; return }
+    if (!audio || !gain || audio.paused || !smooth) { pendingFadeInRef.current = 0; if (gain) glide(gain.gain, 1, 0); return }
+    glide(gain.gain, 0, 0.12)
+    await new Promise(resolve => window.setTimeout(resolve, 140))
+    pendingFadeInRef.current = 0.3
+    // Never leave the fader down if the next song fails to start.
+    window.setTimeout(() => { if (audioRef.current?.paused && trackGainRef.current) { pendingFadeInRef.current = 0; glide(trackGainRef.current.gain, 1, 0) } }, 5000)
+  }, [glide])
+
+  /** onPlaying of the main player: brings the new song in. */
+  const handlePlaying = useCallback(() => {
+    const gain = trackGainRef.current
+    if (!gain) return
+    const seconds = pendingFadeInRef.current
+    pendingFadeInRef.current = 0
+    if (seconds > 0) glide(gain.gain, 1, seconds)
+    else if (gain.gain.value < 1) glide(gain.gain, 1, 0.05)
+  }, [glide])
 
   const seek = useCallback((timeMs: number) => {
     const audio = audioRef.current
@@ -437,10 +548,10 @@ export function useAudioPlayer(visualsEnabled = true) {
   }, [ensureAudioAnalysis, updateFrame])
 
   useEffect(() => {
-    const stop = () => audioRef.current?.pause()
+    const stop = () => { stopGhost(); audioRef.current?.pause() }
     window.addEventListener('lyrigen:dj-playing', stop)
     return () => window.removeEventListener('lyrigen:dj-playing', stop)
-  }, [])
+  }, [stopGhost])
 
   const handlePause = useCallback(() => {
     setIsPlaying(false)
@@ -505,5 +616,8 @@ export function useAudioPlayer(visualsEnabled = true) {
     handleLoadedMetadata,
     handlePlay,
     handlePause,
+    handOff,
+    beforeSwitch,
+    handlePlaying,
   }
 }

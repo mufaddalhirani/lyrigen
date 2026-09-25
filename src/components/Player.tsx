@@ -200,6 +200,9 @@ export function Player({
     handleLoadedMetadata,
     handlePlay,
     handlePause,
+    handOff,
+    beforeSwitch,
+    handlePlaying,
   } = useAudioPlayer(!inAppMini)
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -234,6 +237,13 @@ export function Player({
   const beatClock = useMemo(() => new BeatClock(() => audioRef.current, () => vizAnalyserRef.current), [audioRef, vizAnalyserRef])
   useEffect(() => { try { if (localStorage.getItem('lyrigen-debug') === '1') (window as unknown as { lyrigenBeats: BeatClock }).lyrigenBeats = beatClock } catch { /* storage blocked */ } }, [beatClock])
   const [beatPulse, setBeatPulse] = useState(() => { try { return localStorage.getItem('lyrigen-beat-pulse') !== 'off' } catch { return true } })
+  // Song transitions: 'off' cuts, 'fade' only smooths skips, a number also
+  // crossfades songs that end on their own over that many seconds.
+  const [transition, setTransition] = useState<string>(() => { try { return localStorage.getItem('lyrigen-transition') ?? '6' } catch { return '6' } })
+  const changeTransition = (value: string) => { setTransition(value); try { localStorage.setItem('lyrigen-transition', value) } catch { /* not remembered */ } }
+  const transitionRef = useRef(transition)
+  transitionRef.current = transition
+  const crossfadedRef = useRef('')
   const toggleBeatPulse = () => setBeatPulse(on => { try { localStorage.setItem('lyrigen-beat-pulse', on ? 'off' : 'on') } catch { /* not remembered */ } return !on })
   useEffect(() => {
     beatClock.grid = null
@@ -326,6 +336,10 @@ export function Player({
       ])
       if (!active) return
       resumeMsRef.current = resumeMs
+      // The playing song dips out (or, after a crossfade, is already fading
+      // in the background) before the new one takes the player.
+      await beforeSwitch(transitionRef.current !== 'off')
+      if (!active) return
       setMetadata(meta)
       setAudioUrl(resolvedAudioUrl)
       setCoverUrl(resolvedCoverUrl || meta?.cover || '')
@@ -398,10 +412,26 @@ export function Player({
     else if (onPreviousTrack) onPreviousTrack()
     else onSelectTrack(chooseNextIndex(-1))
   }, [chooseNextIndex, currentTimeMs, onPreviousTrack, onSelectTrack, seek])
+  const willAdvance = repeatMode !== 'one' && (currentIndex < playlist.length - 1 || repeatMode === 'all' || isShuffle)
+  // Crossfade: a few seconds before a song ends on its own, hand it to the
+  // background player and start the next one.
+  useEffect(() => {
+    const seconds = Number(transitionRef.current)
+    const audio = audioRef.current
+    if (!seconds || !isPlaying || !willAdvance || !audio || crossfadedRef.current === audioPath) return
+    const length = audio.duration
+    if (!Number.isFinite(length) || length < seconds * 2 + 20 || loopEndMs != null) return
+    const left = (length - audio.currentTime) / (audio.playbackRate || 1)
+    if (left > seconds + 0.4 || left < 1.5) return
+    crossfadedRef.current = audioPath
+    void handOff(Math.min(seconds, left - 0.3)).then(ok => { if (ok) handleNext() })
+  }, [currentTimeMs, audioPath, audioRef, handOff, handleNext, isPlaying, loopEndMs, willAdvance])
+
   const handleEnded = useCallback(() => {
+    if (crossfadedRef.current === audioPath) return
     if (repeatMode === 'one') { seek(0); play() }
     else if (currentIndex < playlist.length - 1 || repeatMode === 'all' || isShuffle) handleNext()
-  }, [currentIndex, handleNext, isShuffle, play, repeatMode, seek, playlist.length])
+  }, [audioPath, currentIndex, handleNext, isShuffle, play, repeatMode, seek, playlist.length])
 
   useEffect(() => {
     const cleanupCommands = window.electronAPI.onPlayerCommand(command => {
@@ -558,7 +588,7 @@ export function Player({
   const displayArtist = metadata?.artist || 'Unknown Artist'
   const displayAlbum = metadata?.album || playlist[currentIndex]?.album || 'Local Music'
   useEffect(() => { localStorage.setItem('lyrigen-reduced-motion', String(reducedMotion)) }, [reducedMotion])
-  const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadataForTrack} onPlay={recordPlay} onPause={handlePauseAndSaveResume} onEnded={handleEnded} />
+  const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadataForTrack} onPlay={recordPlay} onPause={handlePauseAndSaveResume} onEnded={handleEnded} onPlaying={handlePlaying} />
 
   const drag = useDraggableBar(isMini || inAppMini)
 
@@ -672,6 +702,16 @@ export function Player({
             <button className={karaokeMode ? 'setting-toggle on' : 'setting-toggle'} onClick={toggleKaraokeMode}><span><strong>Center vocal reduction</strong><small>Local stereo cancellation; results vary by mix</small></span><i /></button>
             <button className={preservePitch ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changePreservePitch(!preservePitch)}><span><strong>Preserve pitch</strong><small>Keep voices natural when speed changes</small></span><i /></button>
             {videoPath && <button className={videoEnabled ? 'setting-toggle on' : 'setting-toggle'} onClick={() => setVideoEnabled(value => !value)}><span><strong>Matched local video</strong><small>Use the same-name video as the backdrop</small></span><i /></button>}
+          </div>
+          <div className="setting-section">
+            <label>Song transitions<select value={transition} onChange={event => changeTransition(event.target.value)}>
+              <option value="off">Hard cut</option>
+              <option value="fade">Smooth skips only</option>
+              <option value="3">Crossfade 3 s</option>
+              <option value="6">Crossfade 6 s</option>
+              <option value="10">Crossfade 10 s</option>
+            </select></label>
+            <small className="setting-hint">Skips and clicks fade out in a blink instead of cutting. With a crossfade, a song that ends on its own blends into the next.</small>
           </div>
           <div className="setting-section fluid-settings">
             <button className={fluid.enabled ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changeFluid({ enabled: !fluid.enabled })}><span><strong>Fluid background</strong><small>The cover, blurred and slowly warped — like Apple Music</small></span><i /></button>
