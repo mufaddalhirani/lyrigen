@@ -143,12 +143,28 @@ const barStarts = (grid: BeatGrid, every: number) => (k: number) => ((k - grid.d
 export function chooseStyle(preference: MixStyle | 'auto', out: MixInfo, incoming: MixInfo | null): MixStyle | null {
   if (!out.grid) return null
   const bend = incoming?.grid ? tempoBend(out.grid.bpm, incoming.grid.bpm) : null
-  const matchable = bend != null && Math.abs(bend - 1) <= MAX_BEND
+  const matchable = incoming?.grid != null && splitBend(out.grid.bpm, incoming.grid.bpm) != null
   // Two songs playing together at different tempos would clash: fall back to echo.
   if (preference !== 'auto') return !matchable && (preference === 'blend' || preference === 'bass' || preference === 'filter') ? 'echo' : preference
   if (!matchable) return incoming?.grid && Math.abs((bend ?? 2) - 1) < 0.2 ? 'drop' : 'echo'
   return out.grid.bpm >= 112 ? 'bass' : 'blend'
 }
+
+/**
+ * How to bring two tempos together: the new song alone when it needs at most
+ * 8%; otherwise both meet in the middle (the outgoing one eases there before
+ * the mix), which reaches ~17% apart while neither song moves more than 8%.
+ * Past that the browser's pitch-keeping stretch starts to sound processed.
+ */
+export function splitBend(outBpm: number, incomingBpm: number): { out: number; in: number } | null {
+  const ratio = tempoBend(outBpm, incomingBpm)
+  if (Math.abs(ratio - 1) <= MAX_BEND) return { out: 1, in: ratio }
+  const half = Math.sqrt(ratio)
+  return Math.abs(half - 1) <= MAX_BEND ? { out: 1 / half, in: half } : null
+}
+
+/** Styles where both songs play at once, so their beats must line up. */
+export const overlaps = (style: MixStyle) => style === 'blend' || style === 'bass' || style === 'filter'
 
 /** Rate that makes `incomingBpm` match `outBpm` (half or double time, whichever is closest). */
 export function tempoBend(outBpm: number, incomingBpm: number) {
@@ -232,7 +248,7 @@ export class TransitionRun {
     const inGrid = request.incoming?.grid ?? null
     const bend = inGrid ? tempoBend(grid.bpm * rateOut, inGrid.bpm * base) : 1
     // Only the styles where both songs play together need matched tempos.
-    const overlapping = request.style === 'blend' || request.style === 'bass' || request.style === 'filter'
+    const overlapping = overlaps(request.style)
     const beatmatch = overlapping && inGrid != null && Math.abs(bend - 1) <= MAX_BEND
     const rateIn = beatmatch ? base * bend : base
     incoming.playbackRate = rateIn

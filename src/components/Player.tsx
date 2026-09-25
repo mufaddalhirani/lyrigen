@@ -3,8 +3,9 @@ import { type LyricLine } from '@applemusic-like-lyrics/lyric'
 import { BratLyrics } from './BratLyrics'
 import { KineticLyrics } from './KineticLyrics'
 import { BeatClock, loadMixInfo, type MixInfo } from '../lib/beat/beatClock'
-import { MIX_STYLES, chooseStyle, planMixStart, type MixStyle } from '../lib/transitions/djMix'
+import { MIX_STYLES, chooseStyle, overlaps, planMixStart, splitBend, type MixStyle } from '../lib/transitions/djMix'
 import { VISUAL_MODES, VISUAL_MODE_EVENT, loadVisualMode, saveVisualMode, type VisualMode } from '../lib/visualModes'
+import { CoverSwap } from './player/CoverSwap'
 import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
@@ -319,7 +320,7 @@ export function Player({
     lookupGeneration.current += 1
     setLookupBusy(false)
     setMetadata(null)
-    setCoverUrl('')
+    // The old cover stays up until the new one is ready, then hands over (CoverSwap).
     setVideoUrl('')
     setLyricLines([])
     setLyricSource('')
@@ -418,37 +419,85 @@ export function Player({
     else onSelectTrack(chooseNextIndex(-1))
   }, [chooseNextIndex, currentTimeMs, onPreviousTrack, onSelectTrack, seek])
   const willAdvance = repeatMode !== 'one' && (currentIndex < playlist.length - 1 || repeatMode === 'all' || isShuffle)
+  // Which song the element has really loaded. Right after the next song is
+  // asked for, the element still plays the old file (silently, after a
+  // hand-over) until the new one loads; its time read then as the new song's
+  // made every check below think that song was ending too, and skip again,
+  // through dozens of songs. Nothing acts until this matches audioPath.
+  const loadedPathRef = useRef('')
+  const audioPathRef = useRef(audioPath)
+  audioPathRef.current = audioPath
+  // After an automatic advance, where the next song's sound starts (its
+  // leading silence is skipped). DJ mixes place the new song themselves.
+  const skipIntroRef = useRef<{ path: string; at: number } | null>(null)
+  // The outgoing song easing toward a tempo both songs meet at.
+  const preBendRef = useRef<{ path: string; timer: number } | null>(null)
+  useEffect(() => () => { if (preBendRef.current) window.clearInterval(preBendRef.current.timer); preBendRef.current = null }, [audioPath])
+
+  const handleLoadedMetadataForTrack = useCallback(() => {
+    handleLoadedMetadata()
+    loadedPathRef.current = audioPathRef.current
+    const skip = skipIntroRef.current
+    skipIntroRef.current = null
+    const audio = audioRef.current
+    if (skip && audio && skip.path === audioPathRef.current && skip.at > 0.3 && skip.at < (audio.duration || 0) * 0.3) audio.currentTime = skip.at
+  }, [audioRef, handleLoadedMetadata])
+
+  const nextSkip = useCallback(() => {
+    const next = playlist[(currentIndex + 1) % playlist.length]
+    return next && nextMix.current.path === next.audioPath && nextMix.current.info ? { path: next.audioPath, at: nextMix.current.info.soundStart } : null
+  }, [currentIndex, playlist])
+
   // Transitions for a song ending on its own. DJ mode starts the mix on a
   // phrase that leaves room for the chosen style before the song's audible
   // end; the plain crossfade (and DJ mode's fallback, when a song has no beat
-  // grid or the plan was missed) hands over a few seconds before the end.
+  // grid or the plan was missed) hands over a few seconds before that end.
+  // Silence at the end of a song is never waited through.
   useEffect(() => {
     const mode = transitionRef.current
     const audio = audioRef.current
-    if (!isPlaying || !willAdvance || !audio || crossfadedRef.current === audioPath || loopEndMs != null) return
+    if (!isPlaying || !willAdvance || !audio || loadedPathRef.current !== audioPath || crossfadedRef.current === audioPath || loopEndMs != null) return
     const length = audio.duration
     if (!Number.isFinite(length)) return
     const rate = audio.playbackRate || 1
-    const left = (length - audio.currentTime) / rate
+    const next = playlist[(currentIndex + 1) % playlist.length]
+    // The next song is analysed a while ahead (once; then it is cached).
+    if ((length - audio.currentTime) / rate < 90 && next && nextMix.current.path !== next.audioPath) {
+      const path = next.audioPath
+      nextMix.current = { path, info: null }
+      void loadMixInfo(path).then(info => { if (nextMix.current.path === path) nextMix.current.info = info })
+    }
+    const out = outMix.current?.path === audioPath ? outMix.current.info : null
+    const incoming = next && nextMix.current.path === next.audioPath ? nextMix.current.info : null
+    const end = out && out.soundEnd > length * 0.5 ? Math.min(length, out.soundEnd) : length
+    const left = (end - audio.currentTime) / rate
+    const advance = () => { skipIntroRef.current = nextSkip(); handleNext() }
+
     if (mode.startsWith('dj:')) {
-      const next = playlist[(currentIndex + 1) % playlist.length]
-      // The next song is analysed a while ahead (once; then it is cached).
-      if (left < 90 && next && nextMix.current.path !== next.audioPath) {
-        const path = next.audioPath
-        nextMix.current = { path, info: null }
-        void loadMixInfo(path).then(info => { if (nextMix.current.path === path) nextMix.current.info = info })
-      }
-      const out = outMix.current?.path === audioPath ? outMix.current.info : null
-      const incoming = next && nextMix.current.path === next.audioPath ? nextMix.current.info : null
       const chosen = out && incoming ? chooseStyle(mode.slice(3) as MixStyle | 'auto', out, incoming) : null
       // Past the chosen style's start (a seek near the end)? Echo out needs
       // only a bar, so it usually still fits.
       const options = chosen ? (chosen === 'echo' ? ['echo' as const] : [chosen, 'echo' as const]) : []
       const planned = options.map(option => ({ style: option, start: out ? planMixStart(out, option) : null })).find(plan => plan.start != null && (plan.start - audio.currentTime) / rate > 0.3)
-      const style = planned?.style ?? chosen
-      const start = planned?.start ?? null
-      if (out && style && start != null) {
+      if (out?.grid && incoming?.grid && planned?.start != null) {
+        const { style, start } = planned
         const lead = (start - audio.currentTime) / rate
+        // Tempos too far apart for the new song alone: over the eight bars
+        // before the mix, this song eases half the way toward the other.
+        const split = splitBend(out.grid.bpm, incoming.grid.bpm)
+        const approach = 3 + 32 * 60 / out.grid.bpm / rate
+        if (split && split.out !== 1 && overlaps(style) && lead < approach && !preBendRef.current) {
+          const from = audio.playbackRate
+          const to = from * split.out
+          const began = performance.now()
+          const seconds = Math.max(1, lead - 3)
+          const timer = window.setInterval(() => {
+            const progress = Math.min(1, (performance.now() - began) / 1000 / seconds)
+            audio.playbackRate = from + (to - from) * progress
+            if (progress >= 1) window.clearInterval(timer)
+          }, 50)
+          preBendRef.current = { path: audioPath, timer }
+        }
         if (lead > 2.5) return
         if (lead > 0.3) {
           crossfadedRef.current = audioPath
@@ -457,18 +506,22 @@ export function Player({
         }
       } else if (left > 7) return // no plan (yet): wait for the fallback crossfade
     }
-    const seconds = mode.startsWith('dj:') ? 6 : Number(mode)
-    if (!seconds || length < seconds * 2 + 20) return
-    if (left > seconds + 0.4 || left < 1.5) return
-    crossfadedRef.current = audioPath
-    void handOff(Math.min(seconds, left - 0.3)).then(ok => { if (ok) handleNext() })
-  }, [currentTimeMs, audioPath, audioRef, currentIndex, handOff, handleNext, isPlaying, loopEndMs, playlist, startDjMix, willAdvance])
+    const seconds = mode.startsWith('dj:') ? 6 : Number(mode) || 0
+    if (seconds && length >= seconds * 2 + 20 && left <= seconds + 0.4 && left >= 1.5) {
+      crossfadedRef.current = audioPath
+      void handOff(Math.min(seconds, left - 0.3)).then(ok => { if (ok) advance(); else crossfadedRef.current = '' })
+      return
+    }
+    // No crossfade (or too late for one): a silent tail is skipped, not played.
+    if (end < length - 1 && audio.currentTime >= end + 0.2) { crossfadedRef.current = audioPath; advance() }
+  }, [currentTimeMs, audioPath, audioRef, currentIndex, handOff, handleNext, isPlaying, loopEndMs, nextSkip, playlist, startDjMix, willAdvance])
 
   const handleEnded = useCallback(() => {
-    if (crossfadedRef.current === audioPath) return
+    // An old file ending after the next song was asked for is not this song ending.
+    if (loadedPathRef.current !== audioPath || crossfadedRef.current === audioPath) return
     if (repeatMode === 'one') { seek(0); play() }
-    else if (currentIndex < playlist.length - 1 || repeatMode === 'all' || isShuffle) handleNext()
-  }, [audioPath, currentIndex, handleNext, isShuffle, play, repeatMode, seek, playlist.length])
+    else if (currentIndex < playlist.length - 1 || repeatMode === 'all' || isShuffle) { skipIntroRef.current = nextSkip(); handleNext() }
+  }, [audioPath, currentIndex, handleNext, isShuffle, nextSkip, play, repeatMode, seek, playlist.length])
 
   useEffect(() => {
     const cleanupCommands = window.electronAPI.onPlayerCommand(command => {
@@ -599,7 +652,7 @@ export function Player({
   const displayArtist = metadata?.artist || 'Unknown Artist'
   const displayAlbum = metadata?.album || playlist[currentIndex]?.album || 'Local Music'
   useEffect(() => { localStorage.setItem('lyrigen-reduced-motion', String(reducedMotion)) }, [reducedMotion])
-  const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadata} onPlay={recordPlay} onPause={handlePause} onEnded={handleEnded} onPlaying={handlePlaying} />
+  const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadataForTrack} onPlay={recordPlay} onPause={handlePause} onEnded={handleEnded} onPlaying={handlePlaying} />
 
   const drag = useDraggableBar(isMini || inAppMini)
 
@@ -624,7 +677,7 @@ export function Player({
           />
         </div>
         <button className="mini-identity" onClick={() => inAppMini ? onMiniModeChange?.(false) : window.electronAPI.setMiniMode(false)} aria-label="Open the full player">
-          {coverUrl ? <img src={coverUrl} className="mini-cover" alt="" /> : <div className="mini-cover mini-placeholder"><MaterialIcon name="music" size={20} /></div>}
+          {coverUrl ? <span className="mini-cover-stack"><CoverSwap src={coverUrl} className="mini-cover" alt="" /></span> : <div className="mini-cover mini-placeholder"><MaterialIcon name="music" size={20} /></div>}
           <span className="mini-track"><strong>{displayTitle}</strong><small>{displayArtist}</small></span>
         </button>
         <div className="mini-transport">
@@ -679,7 +732,7 @@ export function Player({
       <main className="now-playing-layout">
         <section className="artwork-column">
           <div className="visualizer-stage" aria-label="Reactive audio visualizer">{VISUALIZER_BARS.map(index => <i key={index} style={{ '--bar-phase': `${index * 0.13}s`, '--bar-height': `${34 + (index % 5) * 12}%` } as CSSProperties} />)}</div>
-          <div className={`hero-artwork ${isPlaying ? 'is-playing' : ''}`}>{visualMode === 'vinyl' && <div className="vinyl-rim" aria-hidden="true" />}{coverUrl ? <img src={coverUrl} alt={`${displayAlbum} cover`} /> : <div className="hero-placeholder">♫</div>}<div className="hero-glass-highlight" /></div>
+          <div className={`hero-artwork ${isPlaying ? 'is-playing' : ''}`}>{visualMode === 'vinyl' && <div className="vinyl-rim" aria-hidden="true" />}{coverUrl ? <CoverSwap src={coverUrl} alt={`${displayAlbum} cover`} /> : <div className="hero-placeholder">♫</div>}<div className="hero-glass-highlight" /></div>
           <div className="track-details"><h1>{displayTitle}</h1><h2>{displayArtist}</h2><p>{displayAlbum}</p><span className="quality-chip">{qualityLabel(metadata, format)}<QualityBadge source={{ lossless: metadata?.lossless, kbps: metadata?.bitrate ? Math.round(metadata.bitrate / 1000) : null, sampleRate: metadata?.sampleRate, bitDepth: metadata?.bitsPerSample, codec: metadata?.codec, format }} /></span></div>
         </section>
 

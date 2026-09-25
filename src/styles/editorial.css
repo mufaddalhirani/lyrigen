@@ -243,3 +243,13 @@ html[data-font="system"], html[data-font="serif"], html[data-font="rounded"], ht
 .player-shell { inset: 0 !important; }
 .player-titlebar { -webkit-app-region: drag; }
 .player-titlebar button, .player-titlebar .view-mode-menu { -webkit-app-region: no-drag; }
+
+/* Album art changes: the old cover sinks back and fades over the new one,
+   which settles in from slightly larger. */
+.cover-in { animation: cover-in 240ms var(--ease) backwards; }
+.cover-out { position: absolute; inset: 0; z-index: 1; pointer-events: none; animation: cover-out 220ms cubic-bezier(.4, 0, .6, 1) forwards; }
+@keyframes cover-in { from { opacity: 0; transform: scale(1.06); } }
+@keyframes cover-out { to { opacity: 0; transform: scale(.94); } }
+.mini-cover-stack { position: relative; display: block; flex-shrink: 0; width: 46px; height: 46px; }
+.reduce-motion .cover-in { animation: none; }
+.reduce-motion .cover-out { display: none; }
