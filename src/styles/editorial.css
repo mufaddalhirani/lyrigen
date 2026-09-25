@@ -211,10 +211,15 @@ html[data-font="system"], html[data-font="serif"], html[data-font="rounded"], ht
 .kinetic-line {
   margin: 0; font-weight: 640; line-height: 1.06; letter-spacing: -.022em; overflow-wrap: anywhere;
   transform: translateY(calc(var(--kick, 0) * -7px)) scale(calc(1 + var(--kick, 0) * .012)); transform-origin: left center;
-  animation: kinetic-in 220ms var(--ease) both;
+  /* backwards, not both: a fill that outlives the entrance pins opacity and
+     transform, which hid the pause fade (bars drawn behind a full line) and
+     the beat kick. */
+  animation: kinetic-in 220ms var(--ease) backwards;
+  transition: opacity 200ms var(--ease);
 }
 .kinetic-line.duet { text-align: right; transform-origin: right center; }
-.kinetic.gap .kinetic-line { opacity: .16; transition: opacity 240ms var(--ease); }
+/* In a pause the visualizer takes the line's place; Previous and Next keep the context. */
+.kinetic.gap .kinetic-line { opacity: 0; }
 @keyframes kinetic-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 .kw { display: inline-block; opacity: .2; transform: translateY(.16em); transition: opacity 170ms var(--ease), transform 220ms var(--ease); }
 .kw.on { opacity: 1; transform: none; }
@@ -225,3 +230,16 @@ html[data-font="system"], html[data-font="serif"], html[data-font="rounded"], ht
 .kinetic-viz { position: absolute; top: 50%; left: 0; width: min(520px, 80%); height: auto; aspect-ratio: 520 / 150; color: var(--text, #f4eff2); --viz-accent: var(--accent-strong); opacity: 0; transform: translateY(-50%); transition: opacity 220ms var(--ease); pointer-events: none; }
 .kinetic.gap .kinetic-viz { opacity: 1; }
 .kinetic.still .kw, .kinetic.still .kinetic-line { transition: none; animation: none; }
+
+/* A sync running in the background: the sidebar badge and the player's button say so. */
+.sidebar button b.nav-sync { color: var(--accent-strong); font-family: var(--mono); }
+.player-titlebar .window-controls .ai-sync-button.is-syncing { color: var(--accent-strong); }
+.player-titlebar .window-controls .ai-sync-button.is-syncing svg { animation: ai-sync-breathe 1.4s ease-in-out infinite alternate; }
+@keyframes ai-sync-breathe { from { opacity: .4; } to { opacity: 1; } }
+
+/* The full player owns the window. The app's title strip (with a second set
+   of window buttons) no longer sits above it; the player's own top bar is
+   where the window is dragged from. */
+.player-shell { inset: 0 !important; }
+.player-titlebar { -webkit-app-region: drag; }
+.player-titlebar button, .player-titlebar .view-mode-menu { -webkit-app-region: no-drag; }

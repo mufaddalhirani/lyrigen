@@ -7,6 +7,8 @@ import { VISUAL_MODES, VISUAL_MODE_EVENT, loadVisualMode, saveVisualMode, type V
 import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
+import type { SyncTarget } from './AiLyricSync'
+import { useSyncJob } from '../lib/lyricSyncJob'
 import { MaterialIcon } from './common/MaterialIcon'
 import { QualityBadge } from './common/QualityBadge'
 import { parseLyricDocument, exportLyricDocument, fromAlignmentJson, hasSyllableTiming, type LyricDocument } from '../lib/lyrics'
@@ -28,6 +30,8 @@ interface PlayerProps extends LibraryTrack {
   queueShuffle?: boolean
   queueRepeat?: RepeatMode
   onPlaybackModes?: (shuffle: boolean, repeat: RepeatMode) => void
+  /** Opens this song in Sync with AI (Lyric Studio) for syllable timing. */
+  onOpenAiSync?: (target: SyncTarget) => void
 }
 
 type RepeatMode = 'off' | 'all' | 'one'
@@ -115,6 +119,16 @@ function ControlIcon({ children, size = 21 }: { children: React.ReactNode; size?
   return <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true">{children}</svg>
 }
 
+/** Sends the song to Sync with AI; while a sync runs, its label shows the progress. */
+function AiSyncButton({ onClick }: { onClick: () => void }) {
+  const job = useSyncJob()
+  const running = job.phase === 'running'
+  const label = running ? `Syncing ${job.target?.title ?? 'a song'}${job.percent != null ? ` · ${Math.round(job.percent)}%` : '…'}` : 'Sync syllables with AI'
+  return <button className={`glass-icon-button ai-sync-button ${running ? 'is-syncing' : ''}`} onClick={onClick} aria-label={label}>
+    <ControlIcon><path d="M3 6h10v2H3V6Zm0 5h8v2H3v-2Zm0 5h10v2H3v-2ZM18 7l1.2 3.3 3.3 1.2-3.3 1.2L18 16l-1.2-3.3-3.3-1.2 3.3-1.2L18 7Z" /></ControlIcon>
+  </button>
+}
+
 function qualityLabel(metadata: AudioMetadata | null, format: string) {
   if (!metadata) return format
   if (metadata.lossless && metadata.sampleRate && metadata.bitsPerSample) {
@@ -145,6 +159,7 @@ export function Player({
   queueShuffle = false,
   queueRepeat = 'off',
   onPlaybackModes,
+  onOpenAiSync,
 }: PlayerProps) {
   const {
     audioRef,
@@ -610,6 +625,7 @@ export function Player({
               </button>)}
             </div>}
           </div>
+          {onOpenAiSync && <AiSyncButton onClick={() => onOpenAiSync({ audioPath, title: displayTitle, artist: metadata?.artist ?? null, duration: metadata?.duration ?? null, lyricPath: lyricPath ?? null, level: 'syllable' })} />}
           <button className={`glass-icon-button ${isSettingsOpen ? 'active' : ''}`} onClick={() => { setIsSettingsOpen(value => !value); setIsQueueOpen(false) }} aria-label="Sound and lyrics settings"><ControlIcon><path d="M4 7h10v2H4V7Zm0 8h6v2H4v-2Zm14-9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm-4 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" /></ControlIcon></button>
           <button className={`glass-icon-button ${isQueueOpen ? 'active' : ''}`} onClick={() => { setIsQueueOpen(value => !value); setIsSettingsOpen(false) }} aria-label="Queue"><ControlIcon><path d="M4 6h12v2H4V6Zm0 5h12v2H4v-2Zm0 5h8v2H4v-2Zm11-1 5 3-5 3v-6Z" /></ControlIcon></button>
           <button className="glass-icon-button" onClick={() => onMiniModeChange ? onMiniModeChange(true) : window.electronAPI.setMiniMode(true)} aria-label="Mini player"><ControlIcon><path d="M5 6h14v12H5V6Zm9 7h3v3h-3v-3Z" /></ControlIcon></button>

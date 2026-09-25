@@ -3,6 +3,7 @@ import { Icon } from '../components/common/Icon'
 import { Stat } from '../components/common/Stat'
 import { LyricsFinder, type FinderTrack } from '../components/LyricsFinder'
 import { AiLyricSync, type SyncTarget } from '../components/AiLyricSync'
+import { currentSyncJob } from '../lib/lyricSyncJob'
 import { displayArtist, prettyTime } from '../lib/format'
 
 /**
@@ -13,7 +14,10 @@ import { displayArtist, prettyTime } from '../lib/format'
 
 type RowStatus = { status: 'searching' | 'saved' | 'missed'; source?: string | null; message?: string | null; retimed?: boolean; embedded?: boolean }
 
-export function LyricsHub({ library, onRefresh, flash }: { library: LibraryTrack[]; onRefresh: () => void; flash: (message: string) => void }) {
+/** A song sent from the player's "Sync syllables with AI" button. */
+export type SyncRequest = { id: number; target: SyncTarget }
+
+export function LyricsHub({ library, onRefresh, flash, request, onRequestHandled }: { library: LibraryTrack[]; onRefresh: () => void; flash: (message: string) => void; request?: SyncRequest | null; onRequestHandled?: () => void }) {
   const [filter, setFilter] = useState<'missing' | 'all'>('missing')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -60,12 +64,19 @@ export function LyricsHub({ library, onRefresh, flash }: { library: LibraryTrack
     } finally { setBusy(false) }
   }
 
-  const [syncTarget, setSyncTarget] = useState<SyncTarget | null>(null)
+  // Coming back while a sync runs (or just finished) reopens it on that song.
+  const [syncTarget, setSyncTarget] = useState<SyncTarget | null>(() => { const job = currentSyncJob(); return job.phase === 'idle' ? null : job.target })
   const syncPanel = useRef<HTMLDivElement>(null)
   const openSync = (track: LibraryTrack) => {
     setSyncTarget({ audioPath: track.audioPath, title: track.title, artist: displayArtist(track), duration: track.duration, lyricPath: track.lyricPath })
     syncPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+  useEffect(() => {
+    if (!request) return
+    setSyncTarget(request.target)
+    requestAnimationFrame(() => syncPanel.current?.scrollIntoView({ block: 'start' }))
+    onRequestHandled?.()
+  }, [request?.id])
   const openFinder = (track: LibraryTrack) => setFinder({ audioPath: track.audioPath, title: track.title, artist: track.artist, album: track.album, duration: track.duration, hasLyricFile: Boolean(track.lyricPath) })
 
   return <section className="tool-page">
