@@ -808,6 +808,8 @@ app.on('window-all-closed', () => {
 })
 
 app.whenReady().then(() => {
+  // Songs always start from the top now; forget positions older versions saved.
+  if (Object.keys(getStateStore().get().resumePositions).length) getStateStore().update(state => { state.resumePositions = {} })
   console.log(`[graphics] requested mode: ${graphicsMode}`)
   reportGraphicsStatus()
   createWindow()
@@ -1266,12 +1268,6 @@ ipcMain.handle('get-listening-recap', (_event, range: 'week' | 'month' | 'year' 
     peakDay: peak && peak.plays > 0 ? peak : null,
   }
 })
-// Kept separate from record-play so periodic "where was I" saves during
-// playback never inflate play-count/recently-played stats.
-ipcMain.handle('save-resume-position', (_event, trackId: string, positionMs: number) => {
-  getStateStore().update(state => { state.resumePositions[trackId] = Math.max(0, Math.round(positionMs)) })
-})
-ipcMain.handle('get-resume-position', (_event, trackId: string) => getStateStore().get().resumePositions[trackId] ?? null)
 /**
  * Duplicate cleanup.
  *
@@ -1396,12 +1392,6 @@ ipcMain.handle('clear-play-history', () => {
   const before = getStateStore().get().playHistory.length
   getStateStore().update(state => { state.playHistory = [] })
   forgetLibrary()
-  return { cleared: before }
-})
-
-ipcMain.handle('clear-resume-positions', () => {
-  const before = Object.keys(getStateStore().get().resumePositions).length
-  getStateStore().update(state => { state.resumePositions = {} })
   return { cleared: before }
 })
 

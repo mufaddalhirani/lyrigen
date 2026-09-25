@@ -481,8 +481,6 @@ interface ElectronAPI {
   setRating: (trackId: string, rating: number) => Promise<LibraryStats>
   recordPlay: (trackId: string, seconds?: number) => Promise<void>
   getListeningRecap: (range: 'week' | 'month' | 'year' | 'all') => Promise<ListeningRecap>
-  saveResumePosition: (trackId: string, positionMs: number) => Promise<void>
-  getResumePosition: (trackId: string) => Promise<number | null>
   getSettings: () => Promise<SettingsState>
   updateSettings: (settings: Partial<SettingsState>) => Promise<SettingsState>
   planDuplicateCleanup: () => Promise<DuplicateGroup[]>
@@ -502,7 +500,6 @@ interface ElectronAPI {
   inspectCookiesFile: (filePath: string) => Promise<{ ok: boolean; message: string }>
   chooseCookiesFile: () => Promise<{ path: string; ok: boolean; message: string } | null>
   clearPlayHistory: () => Promise<{ cleared: number }>
-  clearResumePositions: () => Promise<{ cleared: number }>
   resetWindowBounds: () => Promise<boolean>
   openDataFolder: () => Promise<string>
   getAppInfo: () => Promise<AppInfo>

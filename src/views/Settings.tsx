@@ -152,16 +152,12 @@ export function Settings({ roots, onAddRoot, onRemoveRoot, flash }: {
 
         <div className="settings-card">
           <div className="settings-card-head"><span className="kicker">DATA</span><h4>Stored on this computer</h4></div>
-          <p className="settings-note">Play history, resume positions, playlists and settings. Clearing any of it is immediate and cannot be undone.</p>
+          <p className="settings-note">Play history, playlists and settings. Clearing any of it is immediate and cannot be undone.</p>
           <div className="settings-actions">
             <button className="ghost-button" disabled={Boolean(busy)} onClick={confirmThen('Clear all play history? Listening recaps and play counts will reset to zero.', async () => {
               const result = await window.electronAPI.clearPlayHistory()
               return `Cleared ${result.cleared} play${result.cleared === 1 ? '' : 's'} from history.`
             })}>Clear play history</button>
-            <button className="ghost-button" disabled={Boolean(busy)} onClick={confirmThen('Forget where you stopped in every track?', async () => {
-              const result = await window.electronAPI.clearResumePositions()
-              return `Cleared ${result.cleared} saved position${result.cleared === 1 ? '' : 's'}.`
-            })}>Clear resume positions</button>
             <button className="ghost-button" disabled={Boolean(busy)} onClick={() => void run('window', async () => {
               await window.electronAPI.resetWindowBounds()
               return 'Window size and position reset.'

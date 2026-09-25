@@ -56,28 +56,108 @@ function readCached(path: string): BeatGrid | null | undefined {
   }
 }
 
-/** The song's beat grid: cached, or found now (about a second of background work). */
-export async function loadBeatGrid(path: string): Promise<BeatGrid | null> {
-  const cached = readCached(path)
-  if (cached !== undefined) return cached
+/** What a DJ transition needs to know about a song. */
+export interface MixInfo {
+  grid: BeatGrid | null
+  /** Where the music is actually audible (seconds): intros and tails of silence are left out. */
+  soundStart: number
+  soundEnd: number
+  duration: number
+  /**
+   * Where the beat is in full (seconds, on a phrase downbeat): the first
+   * phrase whose kicks hit like the body of the song. A mix can enter here
+   * and skip a quiet or build-up intro. Null when the song has no grid, or the
+   * beat only arrives late.
+   */
+  beatIn: number | null
+}
+
+const MIX_KEY = (path: string) => `lyrigen-mixinfo-v2:${path.toLocaleLowerCase()}`
+const mixMemory = new Map<string, Promise<MixInfo | null>>()
+
+/** The song's grid and audible span: cached, or found now (about a second of background work). */
+export function loadMixInfo(path: string): Promise<MixInfo | null> {
+  const key = path.toLocaleLowerCase()
+  let pending = mixMemory.get(key)
+  if (!pending) {
+    pending = analyzeMixInfo(path).catch(() => null)
+    mixMemory.set(key, pending)
+  }
+  return pending
+}
+
+async function analyzeMixInfo(path: string): Promise<MixInfo | null> {
+  try {
+    const raw = localStorage.getItem(MIX_KEY(path))
+    if (raw) return JSON.parse(raw) as MixInfo
+  } catch { /* analysed again */ }
   const bytes = await window.electronAPI.readAudioBytes(path)
   if (!bytes) return null
   const analysis = await analyzeAudio(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer)
   let grid: BeatGrid | null = null
+  let beatIn: number | null = null
   if (analysis.bpm) {
     // The downbeat is the beat position (of four) where the bass hits hardest on average.
     const beat = 60 / analysis.bpm
     const scores = [0, 0, 0, 0]
+    const hits: number[] = []
     for (let k = 0; analysis.firstBeat + k * beat < analysis.duration; k++) {
       const frame = Math.round((analysis.firstBeat + k * beat) * analysis.frameRate)
       let hit = 0
       for (let f = frame - 1; f <= frame + 2; f++) if (f >= 0 && f < analysis.peaks.length) hit = Math.max(hit, analysis.peaks[f] * analysis.lows[f])
       scores[k % 4] += hit
+      hits.push(hit)
     }
     grid = { bpm: analysis.bpm, firstBeat: analysis.firstBeat, downbeat: scores.indexOf(Math.max(...scores)) }
+    beatIn = findBeatIn(grid, hits, analysis.duration)
   }
-  try { localStorage.setItem(GRID_KEY(path), JSON.stringify(grid)) } catch { /* recomputed next time */ }
-  return grid
+  // Audible span: where half-second peaks reach 12% of the song's typical loud level.
+  const peaks = analysis.peaks
+  const sorted = Float32Array.from(peaks).sort()
+  const threshold = (sorted[Math.floor(sorted.length * 0.9)] || 0) * 0.12
+  const span = Math.round(analysis.frameRate / 2)
+  const loud = (frame: number) => { for (let f = frame; f < Math.min(peaks.length, frame + span); f++) if (peaks[f] > threshold) return true; return false }
+  let first = 0
+  while (first < peaks.length && !loud(first)) first += span
+  let last = peaks.length - span
+  while (last > first && !loud(last)) last -= span
+  const info: MixInfo = { grid, soundStart: first / analysis.frameRate, soundEnd: Math.min(analysis.duration, (last + span) / analysis.frameRate), duration: analysis.duration, beatIn }
+  try { localStorage.setItem(MIX_KEY(path), JSON.stringify(info)); localStorage.setItem(GRID_KEY(path), JSON.stringify(grid)) } catch { /* recomputed next time */ }
+  return info
+}
+
+/**
+ * The first phrase start (every 16 beats from the downbeat, else every bar)
+ * where the next four bars kick at least 70% as hard as the song's typical
+ * bar — the "body" of the song, after any intro or build-up. Only looked for
+ * in the first 40% of the song (and 90 s), so a mix never skips half of it.
+ */
+function findBeatIn(grid: BeatGrid, hits: number[], duration: number): number | null {
+  const beat = 60 / grid.bpm
+  const offset = ((grid.downbeat % 4) + 4) % 4
+  const bars: number[] = []
+  for (let k = offset; k + 4 <= hits.length; k += 4) bars.push((hits[k] + hits[k + 1] + hits[k + 2] + hits[k + 3]) / 4)
+  if (bars.length < 16) return null
+  const middle = bars.slice(Math.floor(bars.length * 0.2), Math.ceil(bars.length * 0.8)).sort((a, b) => a - b)
+  const typical = middle[Math.floor(middle.length * 0.6)]
+  if (!typical) return null
+  const limit = Math.min(duration * 0.4, 90)
+  const full = (bar: number) => bar + 4 <= bars.length && (bars[bar] + bars[bar + 1] + bars[bar + 2] + bars[bar + 3]) / 4 >= typical * 0.7
+  for (const every of [4, 1]) { // bars per step: a 16-beat phrase, else any bar
+    for (let bar = 0; bar < bars.length; bar += every) {
+      const at = grid.firstBeat + (offset + bar * 4) * beat
+      if (at > limit) break
+      if (full(bar)) return at
+    }
+  }
+  return null
+}
+
+/** The song's beat grid: cached, or found now (about a second of background work). */
+export async function loadBeatGrid(path: string): Promise<BeatGrid | null> {
+  const cached = readCached(path)
+  if (cached !== undefined) return cached
+  return (await loadMixInfo(path))?.grid ?? null
 }
 
 export class BeatClock {

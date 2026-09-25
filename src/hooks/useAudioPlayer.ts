@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { GenreChain } from '../audio/engine/genreChain'
 import { GENRE_MODES, type GenreModeId } from '../audio/modes/genreModes'
+import { MixBus, TransitionRun, type MixRequest } from '../lib/transitions/djMix'
+import type { MixInfo } from '../lib/beat/beatClock'
 
 export const EQ_FREQUENCIES = [60, 170, 350, 1000, 3500, 10000] as const
 
@@ -58,6 +60,11 @@ export function useAudioPlayer(visualsEnabled = true) {
   const ghostRef = useRef<{ audio: HTMLAudioElement; gain: GainNode; timer: number } | null>(null)
   const pendingFadeInRef = useRef(0)
   const handedOffRef = useRef(false)
+  const busRef = useRef<MixBus | null>(null)
+  const pendingMixRef = useRef<{ request: MixRequest; from: string } | null>(null)
+  const runRef = useRef<TransitionRun | null>(null)
+  // syncPlaybackRate is declared further down; the mix calls it when it ends.
+  const syncRateRef = useRef<() => void>(() => undefined)
   const karaokePathRef = useRef<GainNode | null>(null)
   const compressorRef = useRef<DynamicsCompressorNode | null>(null)
   const lastTimeRenderRef = useRef(0)
@@ -131,22 +138,20 @@ export function useAudioPlayer(visualsEnabled = true) {
         return filter
       })
 
-      const trackGain = context.createGain()
-      source.connect(trackGain)
-      let tail: AudioNode = trackGain
-      for (const filter of filters) {
+      // Both players get a DJ strip (fader, 3-band EQ, filter, echo and
+      // reverb sends) ahead of the shared EQ and effects, so a song fading
+      // out sounds like the rest of the player.
+      const ghostAudio = new Audio()
+      ghostAudio.preload = 'auto'
+      const bus = new MixBus(context, source, context.createMediaElementSource(ghostAudio), filters[0])
+      let tail: AudioNode = filters[0]
+      for (const filter of filters.slice(1)) {
         tail.connect(filter)
         tail = filter
       }
-      // The outgoing song in a crossfade goes through the same EQ and effects.
-      const ghostAudio = new Audio()
-      ghostAudio.preload = 'auto'
-      const ghostGain = context.createGain()
-      ghostGain.gain.value = 0
-      context.createMediaElementSource(ghostAudio).connect(ghostGain)
-      ghostGain.connect(filters[0])
-      trackGainRef.current = trackGain
-      ghostRef.current = { audio: ghostAudio, gain: ghostGain, timer: 0 }
+      busRef.current = bus
+      trackGainRef.current = bus.main.gain
+      ghostRef.current = { audio: ghostAudio, gain: bus.ghost.gain, timer: 0 }
 
       const waveShaper = context.createWaveShaper()
       waveShaper.oversample = driveAmountRef.current ? '2x' : 'none'
@@ -254,6 +259,8 @@ export function useAudioPlayer(visualsEnabled = true) {
 
   /** Silences a song still fading out, when the person pauses or the DJ takes over. */
   const stopGhost = useCallback(() => {
+    if (runRef.current && !runRef.current.finished) runRef.current.abort()
+    pendingMixRef.current = null
     const ghost = ghostRef.current
     if (!ghost) return
     window.clearTimeout(ghost.timer)
@@ -301,7 +308,7 @@ export function useAudioPlayer(visualsEnabled = true) {
    * free for the next song, which fades in when it starts. False when the
    * hand-over could not happen (the song then just ends as before).
    */
-  const handOff = useCallback(async (seconds: number) => {
+  const handOff = useCallback(async (seconds: number | null) => {
     const audio = audioRef.current
     const ghost = ghostRef.current
     const gain = trackGainRef.current
@@ -326,12 +333,31 @@ export function useAudioPlayer(visualsEnabled = true) {
     try { await other.play() } catch { return false }
     glide(gain.gain, 0, 0.06)
     glide(ghost.gain.gain, 1, 0.06)
-    window.setTimeout(() => glide(ghost.gain.gain, 0, seconds), 80)
-    ghost.timer = window.setTimeout(() => other.pause(), seconds * 1000 + 400)
+    // null: a DJ mix takes it from here.
+    if (seconds != null) {
+      window.setTimeout(() => glide(ghost.gain.gain, 0, seconds), 80)
+      ghost.timer = window.setTimeout(() => other.pause(), seconds * 1000 + 400)
+    }
     handedOffRef.current = true
-    pendingFadeInRef.current = seconds
+    pendingFadeInRef.current = seconds ?? 0
     return true
   }, [glide])
+
+  /**
+   * DJ transition: hands the ending song to the hidden player (it keeps
+   * playing at full), then the caller switches to the next song; when that
+   * one starts playing, a TransitionRun takes both over.
+   */
+  const startDjMix = useCallback(async (request: MixRequest) => {
+    const from = audioRef.current?.src ?? ''
+    if (!await handOff(null)) return false
+    pendingMixRef.current = { request, from }
+    return true
+  }, [handOff])
+  /** True between a DJ hand-over and the next song starting. */
+  const mixPending = useCallback(() => pendingMixRef.current != null, [])
+  /** The song actually loaded next (the queue can change); its grid and span. */
+  const setMixIncoming = useCallback((info: MixInfo | null) => { if (pendingMixRef.current) pendingMixRef.current.request.incoming = info }, [])
 
   /**
    * Call just before the main player switches to another song. After a
@@ -342,6 +368,8 @@ export function useAudioPlayer(visualsEnabled = true) {
     const audio = audioRef.current
     const gain = trackGainRef.current
     if (handedOffRef.current) { handedOffRef.current = false; return }
+    // A skip in the middle of a mix: drop the mix, then dip as usual.
+    if (runRef.current && !runRef.current.finished) runRef.current.abort(true)
     if (!audio || !gain || audio.paused || !smooth) { pendingFadeInRef.current = 0; if (gain) glide(gain.gain, 1, 0); return }
     glide(gain.gain, 0, 0.12)
     await new Promise(resolve => window.setTimeout(resolve, 140))
@@ -353,7 +381,24 @@ export function useAudioPlayer(visualsEnabled = true) {
   /** onPlaying of the main player: brings the new song in. */
   const handlePlaying = useCallback(() => {
     const gain = trackGainRef.current
-    if (!gain) return
+    const audio = audioRef.current
+    if (!gain || !audio) return
+    const pending = pendingMixRef.current
+    const bus = busRef.current
+    const ghost = ghostRef.current
+    if (pending && bus && ghost && audio.src !== pending.from) {
+      pendingMixRef.current = null
+      const run = new TransitionRun(bus, ghost.audio, audio, pending.request,
+        () => Math.max(0.25, Math.min(4, userRateRef.current * GENRE_MODES[genreModeRef.current].tempo)),
+        () => { if (runRef.current === run) runRef.current = null; syncRateRef.current() })
+      runRef.current = run
+      run.start()
+      try { if (localStorage.getItem('lyrigen-debug') === '1') (window as unknown as { lyrigenMix: TransitionRun }).lyrigenMix = run } catch { /* no debug handle */ }
+      return
+    }
+    // The mix moves the new song around (silently) while it lines it up;
+    // those re-starts must not bring its fader up.
+    if (runRef.current && !runRef.current.finished) return
     const seconds = pendingFadeInRef.current
     pendingFadeInRef.current = 0
     if (seconds > 0) glide(gain.gain, 1, seconds)
@@ -406,6 +451,7 @@ export function useAudioPlayer(visualsEnabled = true) {
     // pitch correction has to be off while one is active.
     audio.preservesPitch = mode.id === 'off' ? preservePitchRef.current : false
   }, [])
+  syncRateRef.current = syncPlaybackRate
 
   const changePlaybackRate = useCallback((rate: number) => {
     const nextRate = Math.max(0.5, Math.min(2, rate))
@@ -617,6 +663,9 @@ export function useAudioPlayer(visualsEnabled = true) {
     handlePlay,
     handlePause,
     handOff,
+    startDjMix,
+    mixPending,
+    setMixIncoming,
     beforeSwitch,
     handlePlaying,
   }

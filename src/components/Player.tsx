@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { type LyricLine } from '@applemusic-like-lyrics/lyric'
 import { BratLyrics } from './BratLyrics'
 import { KineticLyrics } from './KineticLyrics'
-import { BeatClock, loadBeatGrid } from '../lib/beat/beatClock'
+import { BeatClock, loadMixInfo, type MixInfo } from '../lib/beat/beatClock'
+import { MIX_STYLES, chooseStyle, planMixStart, type MixStyle } from '../lib/transitions/djMix'
 import { VISUAL_MODES, VISUAL_MODE_EVENT, loadVisualMode, saveVisualMode, type VisualMode } from '../lib/visualModes'
 import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -201,6 +202,9 @@ export function Player({
     handlePlay,
     handlePause,
     handOff,
+    startDjMix,
+    mixPending,
+    setMixIncoming,
     beforeSwitch,
     handlePlaying,
   } = useAudioPlayer(!inAppMini)
@@ -228,7 +232,6 @@ export function Player({
   const [actionMessage, setActionMessage] = useState('')
   const [isMini, setIsMini] = useState(false)
   const lyricDocument = useRef<LyricDocument>({ lines: [], timing: 'word', metadata: [] })
-  const resumeMsRef = useRef<number | null>(null)
   const [timing, setTiming] = useState<LyricDocument['timing']>('word')
   const [reducedMotion, setReducedMotion] = useState(() => localStorage.getItem('lyrigen-reduced-motion') === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches)
   const lookupGeneration = useRef(0)
@@ -239,17 +242,20 @@ export function Player({
   const [beatPulse, setBeatPulse] = useState(() => { try { return localStorage.getItem('lyrigen-beat-pulse') !== 'off' } catch { return true } })
   // Song transitions: 'off' cuts, 'fade' only smooths skips, a number also
   // crossfades songs that end on their own over that many seconds.
-  const [transition, setTransition] = useState<string>(() => { try { return localStorage.getItem('lyrigen-transition') ?? '6' } catch { return '6' } })
+  const [transition, setTransition] = useState<string>(() => { try { return localStorage.getItem('lyrigen-transition') ?? 'dj:auto' } catch { return 'dj:auto' } })
   const changeTransition = (value: string) => { setTransition(value); try { localStorage.setItem('lyrigen-transition', value) } catch { /* not remembered */ } }
   const transitionRef = useRef(transition)
   transitionRef.current = transition
   const crossfadedRef = useRef('')
+  const outMix = useRef<{ path: string; info: MixInfo | null } | null>(null)
+  const nextMix = useRef<{ path: string; info: MixInfo | null }>({ path: '', info: null })
   const toggleBeatPulse = () => setBeatPulse(on => { try { localStorage.setItem('lyrigen-beat-pulse', on ? 'off' : 'on') } catch { /* not remembered */ } return !on })
   useEffect(() => {
     beatClock.grid = null
     let active = true
     // A moment after the song starts, so the analysis never competes with it.
-    const timer = window.setTimeout(() => { void loadBeatGrid(audioPath).then(grid => { if (active) beatClock.grid = grid }).catch(() => undefined) }, 1500)
+    // The same analysis gives the DJ transitions this song's grid and audible span.
+    const timer = window.setTimeout(() => { void loadMixInfo(audioPath).then(info => { if (!active) return; beatClock.grid = info?.grid ?? null; outMix.current = { path: audioPath, info } }) }, 1500)
     return () => { active = false; window.clearTimeout(timer) }
   }, [audioPath, beatClock])
   const changeFluid = (patch: Partial<FluidSettings>) => setFluid(current => { const next = { ...current, ...patch }; saveFluidSettings(next); return next })
@@ -319,7 +325,6 @@ export function Player({
     setLyricSource('')
     setRawSyncedLyrics('')
     setActionMessage('')
-    resumeMsRef.current = null
     setLyricOffsetMs(Number(localStorage.getItem(`lyrigen-offset:${audioPath}`) || 0))
     // Video is available on demand, but never starts automatically because it
     // can be expensive on lower-powered PCs.
@@ -327,17 +332,17 @@ export function Player({
     setLyricStatus(lyricPath ? 'Reading synced lyrics…' : 'Looking online for synced lyrics…')
 
     async function loadTrack() {
-      const [meta, resolvedAudioUrl, resolvedCoverUrl, resolvedVideoUrl, resumeMs] = await Promise.all([
+      const [meta, resolvedAudioUrl, resolvedCoverUrl, resolvedVideoUrl] = await Promise.all([
         window.electronAPI.getAudioMetadata(audioPath),
         window.electronAPI.getMediaUrl(audioPath),
         coverPath ? window.electronAPI.getMediaUrl(coverPath) : Promise.resolve(''),
         videoPath ? window.electronAPI.getMediaUrl(videoPath) : Promise.resolve(''),
-        window.electronAPI.getResumePosition(audioPath.toLocaleLowerCase()).catch(() => null),
       ])
       if (!active) return
-      resumeMsRef.current = resumeMs
       // The playing song dips out (or, after a crossfade, is already fading
       // in the background) before the new one takes the player.
+      // After a DJ hand-over, the mix needs this song's grid (usually analysed already).
+      if (mixPending()) setMixIncoming(await loadMixInfo(audioPath))
       await beforeSwitch(transitionRef.current !== 'off')
       if (!active) return
       setMetadata(meta)
@@ -413,19 +418,51 @@ export function Player({
     else onSelectTrack(chooseNextIndex(-1))
   }, [chooseNextIndex, currentTimeMs, onPreviousTrack, onSelectTrack, seek])
   const willAdvance = repeatMode !== 'one' && (currentIndex < playlist.length - 1 || repeatMode === 'all' || isShuffle)
-  // Crossfade: a few seconds before a song ends on its own, hand it to the
-  // background player and start the next one.
+  // Transitions for a song ending on its own. DJ mode starts the mix on a
+  // phrase that leaves room for the chosen style before the song's audible
+  // end; the plain crossfade (and DJ mode's fallback, when a song has no beat
+  // grid or the plan was missed) hands over a few seconds before the end.
   useEffect(() => {
-    const seconds = Number(transitionRef.current)
+    const mode = transitionRef.current
     const audio = audioRef.current
-    if (!seconds || !isPlaying || !willAdvance || !audio || crossfadedRef.current === audioPath) return
+    if (!isPlaying || !willAdvance || !audio || crossfadedRef.current === audioPath || loopEndMs != null) return
     const length = audio.duration
-    if (!Number.isFinite(length) || length < seconds * 2 + 20 || loopEndMs != null) return
-    const left = (length - audio.currentTime) / (audio.playbackRate || 1)
+    if (!Number.isFinite(length)) return
+    const rate = audio.playbackRate || 1
+    const left = (length - audio.currentTime) / rate
+    if (mode.startsWith('dj:')) {
+      const next = playlist[(currentIndex + 1) % playlist.length]
+      // The next song is analysed a while ahead (once; then it is cached).
+      if (left < 90 && next && nextMix.current.path !== next.audioPath) {
+        const path = next.audioPath
+        nextMix.current = { path, info: null }
+        void loadMixInfo(path).then(info => { if (nextMix.current.path === path) nextMix.current.info = info })
+      }
+      const out = outMix.current?.path === audioPath ? outMix.current.info : null
+      const incoming = next && nextMix.current.path === next.audioPath ? nextMix.current.info : null
+      const chosen = out && incoming ? chooseStyle(mode.slice(3) as MixStyle | 'auto', out, incoming) : null
+      // Past the chosen style's start (a seek near the end)? Echo out needs
+      // only a bar, so it usually still fits.
+      const options = chosen ? (chosen === 'echo' ? ['echo' as const] : [chosen, 'echo' as const]) : []
+      const planned = options.map(option => ({ style: option, start: out ? planMixStart(out, option) : null })).find(plan => plan.start != null && (plan.start - audio.currentTime) / rate > 0.3)
+      const style = planned?.style ?? chosen
+      const start = planned?.start ?? null
+      if (out && style && start != null) {
+        const lead = (start - audio.currentTime) / rate
+        if (lead > 2.5) return
+        if (lead > 0.3) {
+          crossfadedRef.current = audioPath
+          void startDjMix({ style, out, incoming, target: start }).then(ok => { if (ok) handleNext(); else crossfadedRef.current = '' })
+          return
+        }
+      } else if (left > 7) return // no plan (yet): wait for the fallback crossfade
+    }
+    const seconds = mode.startsWith('dj:') ? 6 : Number(mode)
+    if (!seconds || length < seconds * 2 + 20) return
     if (left > seconds + 0.4 || left < 1.5) return
     crossfadedRef.current = audioPath
     void handOff(Math.min(seconds, left - 0.3)).then(ok => { if (ok) handleNext() })
-  }, [currentTimeMs, audioPath, audioRef, handOff, handleNext, isPlaying, loopEndMs, willAdvance])
+  }, [currentTimeMs, audioPath, audioRef, currentIndex, handOff, handleNext, isPlaying, loopEndMs, playlist, startDjMix, willAdvance])
 
   const handleEnded = useCallback(() => {
     if (crossfadedRef.current === audioPath) return
@@ -517,32 +554,6 @@ export function Player({
     } catch { /* Stats should never interrupt playback. */ }
   }, [audioPath, handlePlay, metadata?.title, title])
 
-  // Session restoration: pick up mid-song where the track was last paused,
-  // saved via a dedicated resume-only IPC call so it never inflates the
-  // recently-played/most-played stats that recordPlay() feeds instead.
-  const handleLoadedMetadataForTrack = useCallback(() => {
-    handleLoadedMetadata()
-    const resumeMs = resumeMsRef.current
-    resumeMsRef.current = null
-    const audio = audioRef.current
-    if (resumeMs && resumeMs > 4000 && audio?.duration && resumeMs < audio.duration * 1000 * 0.97) seek(resumeMs)
-  }, [audioRef, handleLoadedMetadata, seek])
-
-  const handlePauseAndSaveResume = useCallback(() => {
-    handlePause()
-    const audio = audioRef.current
-    if (audio) void window.electronAPI.saveResumePosition(audioPath.toLocaleLowerCase(), audio.currentTime * 1000).catch(() => undefined)
-  }, [audioPath, audioRef, handlePause])
-
-  useEffect(() => {
-    if (!isPlaying) return
-    const id = window.setInterval(() => {
-      const audio = audioRef.current
-      if (audio) void window.electronAPI.saveResumePosition(audioPath.toLocaleLowerCase(), audio.currentTime * 1000).catch(() => undefined)
-    }, 15_000)
-    return () => window.clearInterval(id)
-  }, [audioPath, audioRef, isPlaying])
-
   const saveOnlineLyrics = async () => {
     if (!rawSyncedLyrics) { setActionMessage('Only synced results can be saved as LRC.'); return }
     const result = await window.electronAPI.saveLyrics(audioPath, rawSyncedLyrics)
@@ -588,7 +599,7 @@ export function Player({
   const displayArtist = metadata?.artist || 'Unknown Artist'
   const displayAlbum = metadata?.album || playlist[currentIndex]?.album || 'Local Music'
   useEffect(() => { localStorage.setItem('lyrigen-reduced-motion', String(reducedMotion)) }, [reducedMotion])
-  const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadataForTrack} onPlay={recordPlay} onPause={handlePauseAndSaveResume} onEnded={handleEnded} onPlaying={handlePlaying} />
+  const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadata} onPlay={recordPlay} onPause={handlePause} onEnded={handleEnded} onPlaying={handlePlaying} />
 
   const drag = useDraggableBar(isMini || inAppMini)
 
@@ -710,8 +721,12 @@ export function Player({
               <option value="3">Crossfade 3 s</option>
               <option value="6">Crossfade 6 s</option>
               <option value="10">Crossfade 10 s</option>
+              <optgroup label="DJ mix — beat-matched">
+                <option value="dj:auto">DJ: Auto (picks per pair of songs)</option>
+                {MIX_STYLES.map(style => <option key={style.id} value={`dj:${style.id}`}>DJ: {style.label}</option>)}
+              </optgroup>
             </select></label>
-            <small className="setting-hint">Skips and clicks fade out in a blink instead of cutting. With a crossfade, a song that ends on its own blends into the next.</small>
+            <small className="setting-hint">{transition.startsWith('dj:') ? `${MIX_STYLES.find(style => `dj:${style.id}` === transition)?.hint ?? 'Chooses a beat-matched blend or bass swap when the tempos are close, echo out or a drop when they are not'}. Skips still fade in a blink; songs without a steady beat get a plain crossfade.` : 'Skips and clicks fade out in a blink instead of cutting. With a crossfade, a song that ends on its own blends into the next.'}</small>
           </div>
           <div className="setting-section fluid-settings">
             <button className={fluid.enabled ? 'setting-toggle on' : 'setting-toggle'} onClick={() => changeFluid({ enabled: !fluid.enabled })}><span><strong>Fluid background</strong><small>The cover, blurred and slowly warped — like Apple Music</small></span><i /></button>
