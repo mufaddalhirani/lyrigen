@@ -116,6 +116,11 @@ export const BratLyrics = memo(function BratLyrics({ lines, audioRef, playing, o
     const paragraph = lineRef.current
     if (!paragraph || !boxSize.width) return
     const maxHeight = boxSize.height * 0.62
+    // Measured with every word at rest: a word still flying in sits up to 70vw
+    // off to one side, which counts as overflow, so every size "failed" and the
+    // line was stuck at the minimum after a seek or whenever the first word was
+    // already in flight.
+    paragraph.classList.add('measuring')
     let low = 22, high = 150
     while (high - low > 1) {
       const middle = (low + high) >> 1
@@ -124,6 +129,7 @@ export const BratLyrics = memo(function BratLyrics({ lines, audioRef, playing, o
       else high = middle
     }
     paragraph.style.fontSize = `${low}px`
+    paragraph.classList.remove('measuring')
   }, [position.index, boxSize, narrow, bratLines])
 
   const previous = bratLines[position.index - 1]

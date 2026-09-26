@@ -58,7 +58,7 @@ def cover(path, object_id):
 
 
 def ttml(lines, bpm):
-    """Word-timed TTML: a line every two bars, with an instrumental break after line four."""
+    """Word-timed TTML: a line every two bars, with a four-bar instrumental break after line four."""
     beat = 60 / bpm
     body, t = [], beat * 8
     for number, line in enumerate(lines, 1):
@@ -67,7 +67,7 @@ def ttml(lines, bpm):
         step = span / len(words)
         spans = ' '.join(f'<span begin="{t + i * step:.3f}" end="{t + (i + 1) * step - 0.05:.3f}">{word}</span>' for i, word in enumerate(words))
         body.append(f'<p begin="{t:.3f}" end="{t + span:.3f}" itunes:key="L{number}">{spans}</p>')
-        t += beat * 8 * (2 if number == 4 else 1)
+        t += beat * 8 * (3 if number == 4 else 1)
     return ('<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word">'
             '<body><div>' + ''.join(body) + '</div></body></tt>')
 

@@ -235,6 +235,7 @@ html[data-lyric-motion="none"] .synced-lyrics * {
   animation: brat-fly 240ms var(--ease) both;
 }
 .brat-word.settled, .brat-lyrics.still .brat-word.out { animation: none; }
+.brat-line.measuring .brat-word { animation: none !important; transform: none !important; }
 /* In from far off one edge, a hair past the mark, then snap back onto it. */
 @keyframes brat-fly {
   0% { transform: translateX(calc(var(--from) * 70vw)); }

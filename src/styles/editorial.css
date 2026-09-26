@@ -253,3 +253,6 @@ html[data-font="system"], html[data-font="serif"], html[data-font="rounded"], ht
 .mini-cover-stack { position: relative; display: block; flex-shrink: 0; width: 46px; height: 46px; }
 .reduce-motion .cover-in { animation: none; }
 .reduce-motion .cover-out { display: none; }
+
+/* On the DJ screen the decks have their own transport; the player bar steps aside while paused. */
+.mini-player.in-app-mini.is-hidden { display: none; }

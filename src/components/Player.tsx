@@ -35,6 +35,8 @@ interface PlayerProps extends LibraryTrack {
   onPlaybackModes?: (shuffle: boolean, repeat: RepeatMode) => void
   /** Opens this song in Sync with AI (Lyric Studio) for syllable timing. */
   onOpenAiSync?: (target: SyncTarget) => void
+  /** Hide the player bar while paused (the DJ screen has its own transport). */
+  hideBarWhenPaused?: boolean
 }
 
 type RepeatMode = 'off' | 'all' | 'one'
@@ -164,6 +166,7 @@ export function Player({
   queueRepeat = 'off',
   onPlaybackModes,
   onOpenAiSync,
+  hideBarWhenPaused = false,
 }: PlayerProps) {
   const {
     audioRef,
@@ -701,7 +704,7 @@ export function Player({
   if (isMini || inAppMini) {
     return (
       <div
-        className={`mini-player ${inAppMini ? 'in-app-mini' : ''} ${drag.placed ? 'is-placed' : ''}`}
+        className={`mini-player ${inAppMini ? 'in-app-mini' : ''} ${drag.placed ? 'is-placed' : ''} ${inAppMini && hideBarWhenPaused && !isPlaying ? 'is-hidden' : ''}`}
         ref={node => { setVisualTarget(node); drag.ref.current = node }}
         style={drag.style}
         onDoubleClick={event => { if (!(event.target as HTMLElement).closest('button, input')) drag.reset() }}
