@@ -136,7 +136,7 @@ function getStateStore() {
  * A file or folder picker that opens where the last one of its kind left off.
  *
  * Without a defaultPath Windows opens every picker in Downloads (or wherever it
- * last guessed), so choosing a song from C:\musick meant walking back there
+ * last guessed), so choosing a song from your music folder meant walking back there
  * every single time. Each kind of picker keeps its own folder.
  */
 async function showOpenDialogRemembering(kind: string, options: Electron.OpenDialogOptions) {

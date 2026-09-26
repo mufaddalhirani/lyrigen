@@ -5,7 +5,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-const root = process.argv[2] || 'C:\seng\night core'
+const root = process.argv[2]
+if (!root) { console.error('usage: node scripts/ui-shot.mjs <music-folder>'); process.exit(2) }
 const profile = mkdtempSync(path.join(tmpdir(), 'lyrigen-ui-'))
 writeFileSync(path.join(profile, 'lyrigen-state.json'), JSON.stringify({
   schemaVersion: 3, libraryRoots: [root], playlists: [], favorites: [], ratings: {}, playHistory: [],
