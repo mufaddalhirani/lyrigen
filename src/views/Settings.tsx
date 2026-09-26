@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../components/common/Icon'
+import { DEFAULT_APP_SETTINGS, loadAppSettings, setAppSetting } from '../lib/appSettings'
 
 /**
  * One place for the preferences that are not about a single track.
@@ -13,18 +14,8 @@ import { Icon } from '../components/common/Icon'
  * Nothing on this screen touches your audio files.
  */
 
-export const DEFAULT_APP_SETTINGS: AppSettings = {
-  autoplayOnStartup: false,
-  resumePlayback: true,
-  rescanOnStartup: true,
-  closeToTray: false,
-  autoFetchLyrics: true,
-  reducedMotion: false,
-  confirmDestructive: true,
-}
-
 interface Toggle {
-  key: keyof AppSettings
+  key: Exclude<keyof AppSettings, 'resumePlayback'>
   title: string
   detail: string
 }
@@ -35,7 +26,6 @@ const GROUPS: Array<{ title: string; kicker: string; toggles: Toggle[] }> = [
     title: 'When Lyrigen opens',
     toggles: [
       { key: 'autoplayOnStartup', title: 'Start playing automatically', detail: 'Picks up the last track you were listening to as soon as the app opens. Off by default — an app that makes noise before you ask it to is rarely welcome.' },
-      { key: 'resumePlayback', title: 'Resume where you left off', detail: 'Returns to the exact position you stopped at instead of restarting the track. Positions are remembered per song.' },
       { key: 'rescanOnStartup', title: 'Rescan folders on launch', detail: 'Checks your library folders for changes at startup. Turn this off on a very large library if opening feels slow — new files still appear while the app is running.' },
     ],
   },
@@ -75,19 +65,16 @@ export function Settings({ roots, onAddRoot, onRemoveRoot, flash }: {
 
   useEffect(() => {
     let active = true
-    void window.electronAPI.getSettings().then(stored => {
-      if (active) setSettings({ ...DEFAULT_APP_SETTINGS, ...(stored as Partial<AppSettings>) })
-    })
+    void loadAppSettings().then(stored => { if (active) setSettings(stored) })
     void window.electronAPI.getAppInfo().then(result => { if (active) setInfo(result) }).catch(() => undefined)
     return () => { active = false }
   }, [])
 
-  const toggle = (key: keyof AppSettings) => {
+  const toggle = (key: Toggle['key']) => {
     const next = { ...settings, [key]: !settings[key] }
     setSettings(next)
-    void window.electronAPI.updateSettings({ [key]: next[key] })
-    // Reduced motion is read straight off the document by the lyric renderer.
-    if (key === 'reducedMotion') document.documentElement.classList.toggle('reduce-motion', next.reducedMotion)
+    // Shared, so the player and everything else follow straight away.
+    setAppSetting(key, next[key])
   }
 
   const run = async (label: string, action: () => Promise<string>) => {

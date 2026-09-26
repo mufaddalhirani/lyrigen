@@ -45,7 +45,10 @@ function isRealAlbum(track: LibraryTrack) {
 }
 
 export function Home({ stats, library, onPlay, onOpenLibrary, onInspect: _onInspect, onFavorite: _onFavorite, onPlayNext: _onPlayNext, onPlayLast: _onPlayLast, onRating: _onRating, onPlaylist: _onPlaylist, onPlayRun }: { stats: LibraryStats | null; library: LibraryTrack[]; onPlay: (track: LibraryTrack) => void; onOpenLibrary: () => void; onInspect: (track: LibraryTrack) => void; onFavorite: (track: LibraryTrack) => void; onPlayNext: (track: LibraryTrack) => void; onPlayLast: (track: LibraryTrack) => void; onRating: (track: LibraryTrack) => void; onPlaylist: (track: LibraryTrack) => void; onPlayRun: (tracks: LibraryTrack[]) => void }) {
-  const suggestions = useMemo(() => buildSuggestions(library), [library])
+  // Built once per visit (and again only if songs are added or removed): the
+  // strips hold random picks, and rebuilding them on every library update — the
+  // rescan just after launch, a favourite toggled — reshuffled them under you.
+  const suggestions = useMemo(() => buildSuggestions(library), [library.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const recent = stats?.recent?.length ? stats.recent : []
   const mostPlayed = stats?.mostPlayed?.filter(track => (track.playCount ?? 0) > 0) ?? []
   const lead = recent[0] ?? null
@@ -117,7 +120,7 @@ export function Home({ stats, library, onPlay, onOpenLibrary, onInspect: _onInsp
       <div><dt>Songs</dt><dd>{numberFormat.format(stats?.tracks ?? library.length)}</dd></div>
       <div><dt>Albums</dt><dd>{stats?.albums != null ? numberFormat.format(stats.albums) : '—'}</dd></div>
       <div><dt>Favourites</dt><dd>{numberFormat.format(stats?.favorites ?? 0)}</dd></div>
-      <div><dt>Listened</dt><dd>{stats ? prettyTotal(stats.totalDuration) : '—'}</dd></div>
+      <div><dt>Playing time</dt><dd>{stats ? prettyTotal(stats.totalDuration) : '—'}</dd></div>
     </dl>
 
     <section className="ed-section">

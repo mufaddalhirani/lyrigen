@@ -27,6 +27,9 @@ export function LyricsHub({ library, onRefresh, flash, request, onRequestHandled
   const [retime, setRetime] = useState(true)
   const [embed, setEmbed] = useState(true)
   const [finder, setFinder] = useState<FinderTrack | null>(null)
+  // Rows drawn so far: all ~1,100 songs without lyrics at once froze the screen.
+  const [shown, setShown] = useState(150)
+  useEffect(() => { setShown(150) }, [filter, query])
 
   useEffect(() => window.electronAPI.onLyricsBatchProgress(progress => setRows(current => ({ ...current, [progress.id]: { status: progress.status, source: progress.source, message: progress.message, retimed: progress.retimed } }))), [])
 
@@ -102,7 +105,7 @@ export function LyricsHub({ library, onRefresh, flash, request, onRequestHandled
       </div>
       <div className="lyrics-table">
         <div className="lyrics-head"><span /><span>Song</span><span>Album</span><span>Length</span><span>Lyrics</span><span /></div>
-        {tracks.map(track => {
+        {tracks.slice(0, shown).map(track => {
           const row = rows[track.id]
           const format = track.lyricPath?.split('.').pop()?.toLocaleUpperCase()
           return <div className="lyrics-row" key={track.id}>
@@ -120,6 +123,7 @@ export function LyricsHub({ library, onRefresh, flash, request, onRequestHandled
             <div className="actions"><button className="mini-button" onClick={() => openFinder(track)}>Find…</button><button className="mini-button" title="Time the words with the local AI model" onClick={() => openSync(track)}>AI sync</button></div>
           </div>
         })}
+        {tracks.length > shown && <button className="ghost-button load-more" onClick={() => setShown(value => value + 150)}>Show {Math.min(150, tracks.length - shown)} more · {tracks.length - shown} remaining</button>}
         {!tracks.length && <div className="tool-panel-empty">{library.length ? (filter === 'missing' ? 'Every song has a lyric file. Switch to "All songs" to replace any of them.' : 'No songs match that filter.') : 'Add a library folder first.'}</div>}
       </div>
       <div className="inspect-footer">

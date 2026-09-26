@@ -6,6 +6,7 @@ import { BeatClock, loadMixInfo, type MixInfo } from '../lib/beat/beatClock'
 import { MIX_STYLES, chooseStyle, overlaps, planMixStart, splitBend, type MixStyle } from '../lib/transitions/djMix'
 import { VISUAL_MODES, VISUAL_MODE_EVENT, loadVisualMode, saveVisualMode, type VisualMode } from '../lib/visualModes'
 import { CoverSwap } from './player/CoverSwap'
+import { SETTINGS_EVENT, loadAppSettings, setAppSetting } from '../lib/appSettings'
 import { FluidBackground, loadFluidSettings, saveFluidSettings, type FluidSettings } from './player/FluidBackground'
 import { SyncedLyrics } from './SyncedLyrics'
 import { LyricsFinder } from './LyricsFinder'
@@ -142,6 +143,7 @@ function qualityLabel(metadata: AudioMetadata | null, format: string) {
 
 export function Player({
   title,
+  artist: artistTag,
   audioPath,
   lyricPath,
   coverPath,
@@ -223,9 +225,12 @@ export function Player({
   const [nextAudioUrl, setNextAudioUrl] = useState('')
   const [videoEnabled, setVideoEnabled] = useState(false)
   const [isQueueOpen, setIsQueueOpen] = useState(false)
+  const [finderOpen, setFinderOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const isShuffle = queueShuffle
   const repeatMode = queueRepeat
+  const onPlaybackModesRef = useRef(onPlaybackModes)
+  onPlaybackModesRef.current = onPlaybackModes
   const setIsShuffle = (value: boolean | ((current: boolean) => boolean)) => onPlaybackModes?.(typeof value === 'function' ? value(isShuffle) : value, repeatMode)
   const setRepeatMode = (value: RepeatMode | ((current: RepeatMode) => RepeatMode)) => onPlaybackModes?.(isShuffle, typeof value === 'function' ? value(repeatMode) : value)
   const [lyricOffsetMs, setLyricOffsetMs] = useState(0)
@@ -234,7 +239,17 @@ export function Player({
   const [isMini, setIsMini] = useState(false)
   const lyricDocument = useRef<LyricDocument>({ lines: [], timing: 'word', metadata: [] })
   const [timing, setTiming] = useState<LyricDocument['timing']>('word')
-  const [reducedMotion, setReducedMotion] = useState(() => localStorage.getItem('lyrigen-reduced-motion') === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches)
+  // One setting with Settings → Reduced motion (either switch flips both), or the system's.
+  const systemReducedMotion = useMemo(() => matchMedia('(prefers-reduced-motion: reduce)').matches, [])
+  const [reducedMotionSetting, setReducedMotionSetting] = useState(() => { try { return localStorage.getItem('lyrigen-reduced-motion') === 'true' } catch { return false } })
+  const reducedMotion = reducedMotionSetting || systemReducedMotion
+  const setReducedMotion = (update: (value: boolean) => boolean) => setAppSetting('reducedMotion', update(reducedMotionSetting))
+  useEffect(() => {
+    void loadAppSettings().then(settings => setReducedMotionSetting(settings.reducedMotion))
+    const follow = (event: Event) => setReducedMotionSetting((event as CustomEvent<AppSettings>).detail.reducedMotion)
+    window.addEventListener(SETTINGS_EVENT, follow)
+    return () => window.removeEventListener(SETTINGS_EVENT, follow)
+  }, [])
   const lookupGeneration = useRef(0)
   const [fluid, setFluid] = useState<FluidSettings>(loadFluidSettings)
   // The song's beats, for everything that moves with the music.
@@ -292,13 +307,19 @@ export function Player({
     setLookupBusy(true)
     setActionMessage('')
     setLyricStatus('Searching for word-synced lyrics…')
-    const result = await window.electronAPI.findOnlineLyrics({
-      trackName: meta?.title || title,
-      artistName: meta?.artist,
-      albumName: meta?.album,
-      duration: totalDuration ? totalDuration / 1000 : meta?.duration,
-      audioPath,
-    })
+    let result: Awaited<ReturnType<typeof window.electronAPI.findOnlineLyrics>>
+    try {
+      result = await window.electronAPI.findOnlineLyrics({
+        trackName: meta?.title || title,
+        artistName: meta?.artist,
+        albumName: meta?.album,
+        duration: totalDuration ? totalDuration / 1000 : meta?.duration,
+        audioPath,
+      })
+    } catch {
+      if (generation === lookupGeneration.current) { setLyricStatus('The lyric services could not be reached'); setLookupBusy(false) }
+      return
+    }
     if (generation !== lookupGeneration.current) return
     if (result.found) {
       if (result.ttmlLyrics) {
@@ -352,6 +373,9 @@ export function Player({
       setVideoUrl(resolvedVideoUrl)
 
       if (!lyricPath) {
+        // Settings → Look up lyrics automatically; off means only when asked.
+        if (!(await loadAppSettings()).autoFetchLyrics) { if (active) setLyricStatus('No lyric file · automatic lookup is off in Settings'); return }
+        if (!active) return
         const result = await window.electronAPI.findOnlineLyrics({
           trackName: meta?.title || title,
           artistName: meta?.artist,
@@ -550,13 +574,13 @@ export function Player({
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: displayTitle,
-        artist: metadata?.artist || 'Unknown Artist',
+        artist: metadata?.artist || artistTag || 'Unknown Artist',
         album: metadata?.album || playlist[currentIndex]?.album,
         artwork: sessionArtwork ? [{ src: sessionArtwork }] : [],
       })
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
     }
-  }, [sessionArtwork, currentIndex, isPlaying, metadata, playlist, title])
+  }, [artistTag, sessionArtwork, currentIndex, isPlaying, metadata, playlist, title])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -577,20 +601,37 @@ export function Player({
     if (!isPlaying && !video.paused) video.pause()
   }, [Math.floor(currentTimeMs / 500), isPlaying, videoEnabled])
 
+  // Shortcuts. The small player bar is on screen over every page, so there
+  // only Space works — arrows, letters and Esc belong to whatever page is
+  // open. Keys a focused control handles itself (a button, a song row, a
+  // field) are left to it, so nothing fires twice.
+  const keyState = useRef({ isShuffle, repeatMode, full: !(isMini || inAppMini), overlay: false })
+  keyState.current = { isShuffle, repeatMode, full: !(isMini || inAppMini), overlay: false }
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return
-      if (event.code === 'Space') { event.preventDefault(); togglePlay() }
-      else if (event.code === 'ArrowRight') { event.preventDefault(); skip(10000) }
+      const target = event.target as HTMLElement | null
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+      if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return
+      if (target?.closest('button, a, [role="button"], [role="menuitemradio"], [role="dialog"]')) return
+      const { full } = keyState.current
+      if (event.code === 'Space') { event.preventDefault(); togglePlay(); return }
+      if (!full) return
+      if (event.code === 'ArrowRight') { event.preventDefault(); skip(10000) }
       else if (event.code === 'ArrowLeft') { event.preventDefault(); skip(-10000) }
       else if (event.key.toLocaleLowerCase() === 'm') toggleMute()
-      else if (event.key.toLocaleLowerCase() === 's') setIsShuffle(value => !value)
-      else if (event.key.toLocaleLowerCase() === 'r') setRepeatMode(value => value === 'off' ? 'all' : value === 'all' ? 'one' : 'off')
-      else if (event.code === 'Escape') isQueueOpen ? setIsQueueOpen(false) : isSettingsOpen ? setIsSettingsOpen(false) : onBack()
+      else if (event.key.toLocaleLowerCase() === 's') onPlaybackModesRef.current?.(!keyState.current.isShuffle, keyState.current.repeatMode)
+      else if (event.key.toLocaleLowerCase() === 'r') { const mode = keyState.current.repeatMode; onPlaybackModesRef.current?.(keyState.current.isShuffle, mode === 'off' ? 'all' : mode === 'all' ? 'one' : 'off') }
+      else if (event.code === 'Escape') {
+        if (isModeMenuOpen) setIsModeMenuOpen(false)
+        else if (finderOpen) setFinderOpen(false)
+        else if (isQueueOpen) setIsQueueOpen(false)
+        else if (isSettingsOpen) setIsSettingsOpen(false)
+        else onBack()
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isQueueOpen, isSettingsOpen, onBack, skip, toggleMute, togglePlay])
+  }, [finderOpen, isModeMenuOpen, isQueueOpen, isSettingsOpen, onBack, skip, toggleMute, togglePlay])
 
   const recordPlay = useCallback(() => {
     handlePlay()
@@ -620,7 +661,6 @@ export function Player({
   }
 
   const [alignmentBusy, setAlignmentBusy] = useState(false)
-  const [finderOpen, setFinderOpen] = useState(false)
   const importAlignmentJson = async () => {
     setAlignmentBusy(true)
     setActionMessage('')
@@ -649,9 +689,11 @@ export function Player({
   const cycleRepeat = () => setRepeatMode(value => value === 'off' ? 'all' : value === 'all' ? 'one' : 'off')
 
   const displayTitle = metadata?.title || title
-  const displayArtist = metadata?.artist || 'Unknown Artist'
+  const displayArtist = metadata?.artist || artistTag || 'Unknown Artist'
   const displayAlbum = metadata?.album || playlist[currentIndex]?.album || 'Local Music'
-  useEffect(() => { localStorage.setItem('lyrigen-reduced-motion', String(reducedMotion)) }, [reducedMotion])
+  // The bar and the full player both render this one element. Both layouts
+  // must keep a <div> as their outer element: React then keeps the keyed
+  // <audio> (and the sound path wired to it) when switching between them.
   const audioElement = <audio key="playback-audio" ref={audioRef} src={audioUrl} autoPlay preload="auto" onLoadedMetadata={handleLoadedMetadataForTrack} onPlay={recordPlay} onPause={handlePause} onEnded={handleEnded} onPlaying={handlePlaying} />
 
   const drag = useDraggableBar(isMini || inAppMini)

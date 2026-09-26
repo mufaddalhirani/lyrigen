@@ -10,13 +10,14 @@ and what a future contributor (human or AI) should know before touching it.
 
 - **Renderer**: React 18 + TypeScript, plain CSS (`src/App.css`, intentionally
   hand-written and mostly minified rather than a framework) built with Vite.
-- **Main process**: Electron 28, TypeScript, built with the same Vite pipeline
+- **Main process**: Electron 44, TypeScript, built with the same Vite pipeline
   via `vite-plugin-electron` (see `vite.config.ts`).
 - **Lyrics**: [`@applemusic-like-lyrics`](https://github.com/Steve-xmh/applemusic-like-lyrics)
   (`core` + `lyric` + `react` packages) — the same renderer the AMLL desktop
   app and several other Apple-Music-style players use for smooth, word-level
   synced lyrics.
-- **Tags**: `music-metadata` (read) and `node-id3` (write, MP3 only).
+- **Tags**: `music-metadata` (read); `node-id3` writes MP3 tags, and other
+  formats keep edits in a `.lyrigen-metadata.json` overlay beside the song.
 - **Packaging**: `electron-builder` → NSIS installer + a portable `.exe`.
 
 ```
@@ -27,9 +28,20 @@ src/
     SyncedLyrics.tsx        Thin wrapper around AMLL's <LyricPlayer>
     MetadataStudio.tsx      Bulk "research + apply" metadata tool
     LrcConverter.tsx        Drag-and-drop LRC → TTML converter
-  hooks/useAudioPlayer.ts   Web Audio graph: EQ, karaoke, leveling, waveshaper
+    KineticLyrics.tsx       Kinetic view: words land as sung, held notes stand out
+    BratLyrics.tsx          brat view: words fly in from alternate sides
+    AiLyricSync.tsx         Sync with AI panel (Lyric Studio engine)
+    player/CoverSwap.tsx    Album art that animates when the song changes
+  hooks/useAudioPlayer.ts   Web Audio graph: EQ, karaoke, leveling, waveshaper,
+                            and the two-player mix bus for song transitions
   lib/lyrics.ts             Parse/normalize LRC/TTML/YRC/alignment-JSON
   lib/lrcToTtml.ts          Standalone LRC → TTML converter (own weighting)
+  lib/beat/beatClock.ts     Per-song beat grid + audible span + "beat in" point
+  lib/beat/visualizer.ts    The bars and count-in drawn in lyric gaps
+  lib/transitions/djMix.ts  DJ transitions: mix strips, styles, beat lock
+  lib/lyricSyncJob.ts       The running AI sync, kept outside the panel
+  lib/appSettings.ts        Settings shared by every screen that obeys them
+  lib/dj/                   The DJ screen: analysis, decks, sampler, MIDI
   views/
     Downloads.tsx           Download queue GUI: paste a link, review, watch it run
     Organizer.tsx           Preview-then-apply file sorter for existing folders
@@ -303,21 +315,46 @@ presets. All of it is instant (no processing delay, no offline render step)
 because it's just live filter coefficients — the tradeoff for that is that
 it's tone-shaping, not genre transformation.
 
-## 8. Session restoration ("resume where you left off")
+## 8. Song transitions (DJ mixes in the player)
 
-New in this pass. `state-store.ts` already had a `resumePositions` map in
-its schema, but nothing wrote to it with real data and nothing read it back.
-Now:
+Songs never start where they were paused: a new song always starts at the top
+(or where its sound begins). What happens between songs is the setting
+**Song transitions** in the player's panel: hard cut, smooth skips only, a
+plain 3/6/10 s crossfade, or a **DJ mix** (the default, *Auto*).
 
-- Every ~15 seconds during playback, and immediately on pause, the current
-  position is saved via a dedicated `save-resume-position` IPC call — kept
-  deliberately separate from `record-play` (which still fires once per
-  play-start, unchanged) so this doesn't inflate "recently played"/"most
-  played" stats.
-- When a track loads, Lyrigen looks up its saved position and seeks there
-  automatically, but only if it's meaningfully into the song (> 4 seconds)
-  and not essentially finished (< 97% of duration) — so replaying a track
-  you already finished doesn't awkwardly restart 3 seconds from the end.
+**Two players, one mix bus.** `useAudioPlayer` routes the main `<audio>` and a
+hidden second one through `MixBus` (`lib/transitions/djMix.ts`): per player a
+fader, a three-band EQ, a sweep filter and sends to a beat-timed echo and a
+reverb, all ahead of the shared EQ and effects. To mix, the ending song is
+handed to the hidden player (lined up to the same moment), and the main one
+loads the next song.
+
+**Planning.** Each song is analysed once (`loadMixInfo` in
+`lib/beat/beatClock.ts`, cached in localStorage): tempo and beat grid, which
+beat is the downbeat, where its sound starts and ends (silent tails and intros
+are skipped), and `beatIn` — the first phrase where the kick is at full
+strength, so a mix can enter after an intro or build-up. The mix starts on the
+last phrase (16 beats, else a bar) that leaves room for the style before the
+song's audible end.
+
+**Styles.** Slow blend (32 beats, bass swap halfway), bass swap (16), filter
+(muffle), echo out, sound trail (reverb wash), build-up and drop (noise riser,
+one beat of silence, then the new song). *Auto* picks a beat-matched blend or
+bass swap when the tempos are close and echo out or a drop when they are not.
+
+**Precision.** Every change is automation on the AudioContext clock, so it lands
+where the grid says. An element's start is the one imprecise thing, so the new
+song starts a moment early and silent, and a phase-locked loop pulls it onto
+the outgoing song's beat (a jump while silent, then rate nudges ≤3%): ~4 ms
+median error in testing. Tempo is matched with the browser's pitch-keeping
+stretch, at most 8% per song; tempos up to ~17% apart meet in the middle (the
+ending song eases halfway over the eight bars before the mix), and the new song
+glides back to its own tempo afterwards.
+
+**Guards.** Nothing acts on the element's time until the new song's metadata
+has loaded (`loadedPathRef` in `Player.tsx`) — reading the old file's near-end
+time as the new song's once skipped through dozens of songs. Pausing or skipping
+mid-mix drops the mix cleanly. Songs without a steady beat get a plain crossfade.
 
 ## 9. What other music players do well (research notes)
 
@@ -329,8 +366,7 @@ what Lyrigen already covers and what could be worth borrowing later:
 - **Euphonica** — synced lyrics + a waveform-shaped scrubber + a background
   visualizer, i.e. roughly the combination Lyrigen's "Reactive visualizer"
   mode is going for.
-- **Amberol** — a genuinely minimal UI and session restoration (now also true
-  of Lyrigen — see §8).
+- **Amberol** — a genuinely minimal UI and session restoration.
 - **Tauon** — network source support (Plex/Subsonic/Jellyfin/Spotify), an
   in-app lyrics editor, and Discord Rich Presence.
 - **Lollypop** — a daily "album of the day" curation surfaced on the home
@@ -519,3 +555,33 @@ chart never implies a resolution it does not have.
 Artist grouping in the library uses the same lead-name rule
 (`primaryArtistName` in `src/lib/format.ts`). The word boundaries in that
 regex are load-bearing: without them "and" matches inside Alexander.
+
+## 15. Beats and lyric visuals
+
+`lib/beat/beatClock.ts` gives every visual the song's beats: the grid from the
+one-time analysis, plus live kick strength from a sharp analyser. Lyrics only
+move with the beat when a kick is actually heard (quiet intros and ballads stay
+still). The interlude visualizer (`lib/beat/visualizer.ts`) replaces AMLL's
+three dots in instrumental gaps with live bars, a 1-2-3-4 beat counter and a
+count-in before the next line; it shows only in a real gap AMLL has made room
+for, so it never covers a line. The **Kinetic** view (`KineticLyrics.tsx`)
+lands each word as it is sung, sets held notes large in the serif with a fill
+rule, and moves the line with the beat.
+
+## 16. AI lyric sync (Lyric Studio)
+
+The Sync with AI panel runs Lyric Studio's engine (`python -m lyricstudio.cli`,
+bundled from `lyric-studio/`) in a background process. The running job lives in
+`lib/lyricSyncJob.ts`, outside the panel, so leaving the screen or opening the
+player neither stops nor forgets it; the sidebar and the player's
+**Sync syllables with AI** button show its progress, and that button sends the
+playing song to the panel with its lyrics and syllable level chosen.
+
+## 17. App settings
+
+The Settings screen's switches live in the main process's state file;
+`lib/appSettings.ts` loads them once in the renderer and announces changes, so a
+switch takes effect at once everywhere that obeys it: automatic lyric lookup
+(player), rescan on launch (main process), confirm before filing (Organizer),
+reduced motion (one setting, shared with the player's own switch), start playing
+on launch, keep running in the tray.

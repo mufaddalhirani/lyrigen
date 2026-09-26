@@ -9,7 +9,7 @@
     "url": "https://github.com/mufaddalhirani/lyrigen.git"
   },
   "private": true,
-  "version": "2.5.0",
+  "version": "3.0.0",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

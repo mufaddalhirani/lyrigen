@@ -42,11 +42,12 @@ function ChoiceRow({ title, hint, options, value, onChange }: { title: string; h
 /** The sound controls all live on the now-playing screen; this explains them. */
 const SOUND_GUIDE: Array<{ title: string; detail: string }> = [
   { title: 'Bass and treble', detail: 'Two shortcuts over the six-band EQ — bass moves 60 Hz and 170 Hz together, treble 3.5 kHz and 10 kHz. The EQ below shows exactly what they did, so you can start with a shortcut and fine-tune from there.' },
-  { title: 'Pitch', detail: 'Shifts the key by up to a tone either way without changing speed, through a WSOLA time-stretcher. Centred, it bypasses the processing entirely and costs nothing.' },
+  { title: 'Pitch', detail: 'Shifts the key by up to an octave either way, in half steps, without changing speed, through a WSOLA time-stretcher. Centred, it bypasses the processing entirely and costs nothing.' },
   { title: 'Speed', detail: 'Independent of pitch, in 0.05× steps. "Preserve pitch" is what keeps a sped-up track from sounding like a chipmunk.' },
   { title: 'Dynamic leveling', detail: 'Evens out loudness jumps between recordings. Useful across a mixed library, unnecessary within one well-mastered album.' },
   { title: 'Center vocal reduction', detail: 'Cancels what is identical in both channels, which is usually the lead vocal. Results vary by mix, and it does nothing at all on a mono file.' },
   { title: 'A–B loop', detail: 'Mark two points and the section repeats — for learning a part, or sitting inside a passage you like.' },
+  { title: 'Song transitions', detail: 'How one song hands over to the next. DJ mixes find each song’s beats, match the tempos, and blend, swap basslines, filter, echo out or drop in on the beat — entering the next song where its beat kicks in. Crossfades simply overlap; every setting skips silence at the ends of songs.' },
 ]
 
 export function SoundLab() {

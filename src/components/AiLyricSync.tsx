@@ -234,7 +234,7 @@ export function AiLyricSync({ target, onPickTarget, onSaved, flash }: { target: 
         </span>
       </div>
       <div className="tool-panel-body ai-sync-body">
-        {environment && !environment.ready && <p className="cookie-status bad">{environment.message}</p>}
+        {environment && !environment.ready && <p className="cookie-status bad">{environment.message} <button className="text-link" onClick={() => { setEnvironment(null); void window.electronAPI.lyricSyncEnvironment(true).then(setEnvironment).catch(() => undefined) }}>Check again</button></p>}
         {environment?.ready && environment.gpus > 0 && !environment.cudaRuntime && <p className="settings-note" style={{ margin: 0 }}>Your GPU can make this several times faster once faster-whisper has its CUDA 12 libraries: <b>pip install nvidia-cublas-cu12 nvidia-cudnn-cu12</b>. Until then it runs on the CPU.</p>}
         {environment?.ready && !environment.syllables && <p className="settings-note" style={{ margin: 0 }}>Syllable timing needs three more packages: <b>pip install torch transformers uroman</b> (or run Lyric Studio’s installer). Until then songs are synced word by word.</p>}
 

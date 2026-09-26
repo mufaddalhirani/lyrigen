@@ -9,6 +9,10 @@ import { TrackRow } from '../components/common/TrackRow'
 import { primaryArtistName, displayArtist } from '../lib/format'
 import type { View, LibraryMode, SortMode } from '../types/views'
 
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+/** Cards per page on Folders, Albums, Artists and Genres: drawing all ~1,500 at once froze the screen for about a second. */
+const GROUPS_PER_PAGE = 120
+
 export function CollectionView({ view, tracks, genres, smart, onLeaveSmart, onLibraryChanged, flash, mode, setMode, sort, setSort, genreFilter, setGenreFilter, onPlay, onPlayNext, onPlayLast, onFavorite, onRating, onInspect, onPlaylist, onOpenPlaylist, playlists }: { view: View; tracks: LibraryTrack[]; albums: LibraryTrack[]; artists: string[]; genres: string[]; mode: LibraryMode; setMode: (mode: LibraryMode) => void; sort: SortMode; setSort: (sort: SortMode) => void; genreFilter: string; setGenreFilter: (genre: string) => void; onPlay: (track: LibraryTrack, source?: LibraryTrack[]) => void; onPlayNext: (track: LibraryTrack) => void; onPlayLast: (track: LibraryTrack) => void; onFavorite: (track: LibraryTrack) => void; onRating: (track: LibraryTrack) => void; onInspect: (track: LibraryTrack) => void; onPlaylist: (track: LibraryTrack) => void; onOpenPlaylist: (id: string) => void; playlists: PlaylistRecord[]; smart?: SmartCollection | null; onLeaveSmart?: () => void; onLibraryChanged?: () => void; flash?: (message: string) => void }) {
   const [group, setGroup] = useState('')
   const [page, setPage] = useState(1)
@@ -37,7 +41,7 @@ export function CollectionView({ view, tracks, genres, smart, onLeaveSmart, onLi
       if (bucket) bucket.push(track)
       else map.set(key, [track])
     }
-    const names = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    const names = Array.from(map.keys()).sort(collator.compare)
     return { map, names, keyOf }
   }, [tracks, view])
 
@@ -50,7 +54,7 @@ export function CollectionView({ view, tracks, genres, smart, onLeaveSmart, onLi
       a.relativePath.localeCompare(b.relativePath, undefined, { numeric: true }))
   }, [group, groupIndex, tracks])
 
-  const groups = groupIndex.names
+  const groups = useMemo(() => groupIndex.names.slice(0, page * GROUPS_PER_PAGE), [groupIndex, page])
   const visible = useMemo(() => selectedTracks.slice(0, page * 100), [selectedTracks, page])
   return <section className="collection-view">
     <div className="collection-toolbar">{smart ? <button className="back-link" onClick={() => onLeaveSmart?.()}><Icon name="back" size={15} /> All smart collections</button> : <div className="segmented-tabs">{[['folders','Folders'],['library','Songs'],['albums','Albums'],['artists','Artists'],['genres','Genres']].map(([key,label]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => window.dispatchEvent(new CustomEvent('view-' + key))}>{label}</button>)}</div>}<div className="collection-controls"><select aria-label="Genre filter" value={genreFilter} onChange={event => setGenreFilter(event.target.value)}><option value="">All genres</option>{genres.map(genre => <option key={genre}>{genre}</option>)}</select><select aria-label="Sort tracks" value={sort} onChange={event => setSort(event.target.value as SortMode)}><option value="title">Title / playlist order</option><option value="artist">Artist</option><option value="album">Album</option><option value="recent">Recently played</option><option value="plays">Most played</option></select><button onClick={() => setMode(mode === 'list' ? 'grid' : 'list')} aria-label="Toggle grid view"><Icon name={mode === 'list' ? 'grid' : 'list'} /></button></div></div>
@@ -58,6 +62,7 @@ export function CollectionView({ view, tracks, genres, smart, onLeaveSmart, onLi
     {view === 'playlists' && <div className="playlist-filter-row">{playlists.map(item => <button key={item.id} onClick={() => onOpenPlaylist(item.id)}>{item.name}<span>{item.trackIds.length}</span></button>)}</div>}
     {smart?.id === 'duplicates' && <DuplicateCleanup onDone={() => onLibraryChanged?.()} flash={flash ?? (() => undefined)} />}
     {smart && !visible.length ? <div className="collection-empty"><strong>{smart.title}</strong><p>{smart.empty}</p></div> : entityView && !group ? <div className="entity-grid">{groups.map(key => { const bucket = groupIndex.map.get(key) ?? []; return <button key={key} className="entity-card" onClick={() => setGroup(key)}><Artwork track={bucket[0]} large /><strong>{key}</strong><span>{bucket.length} tracks</span></button> })}</div> : mode === 'grid' ? <div className="track-grid">{visible.map(track => <div className="grid-track" key={track.id}><button onClick={() => onPlay(track, selectedTracks)}><Artwork track={track} large /><strong>{track.title}</strong><span>{displayArtist(track)}</span></button></div>)}</div> : <div className="table-wrap"><div className="table-head"><span>TRACK</span><span>ALBUM</span><span>GENRE</span><span>TIME</span><span /></div>{visible.map((track,index) => <TrackRow key={track.id} track={track} dataTrackIndex={index} onPlay={() => onPlay(track, selectedTracks)} onPlayNext={() => onPlayNext(track)} onPlayLast={() => onPlayLast(track)} onFavorite={() => onFavorite(track)} onRating={() => onRating(track)} onInspect={() => onInspect(track)} onPlaylist={() => onPlaylist(track)} />)}</div>}
+    {entityView && !group && groups.length < groupIndex.names.length && <button className="ghost-button load-more" onClick={() => setPage(value => value + 1)}>Show {Math.min(GROUPS_PER_PAGE, groupIndex.names.length - groups.length)} more · {groupIndex.names.length - groups.length} remaining</button>}
     {(!entityView || group) && visible.length < selectedTracks.length && <button className="ghost-button load-more" onClick={() => setPage(value => value + 1)}>Show next 100 · {selectedTracks.length - visible.length} remaining</button>}
     {!tracks.length && !smart && <div className="empty-card"><h3>No tracks match</h3><p>Clear your filters or add a music folder.</p></div>}
   </section>

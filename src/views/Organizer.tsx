@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/common/Icon'
 import { prettyTime } from '../lib/format'
+import { loadAppSettings } from '../lib/appSettings'
 
 /**
  * Organizer: take folders of loose downloads ("title (sped up) [id].m4a"),
@@ -29,6 +30,8 @@ export function Organizer({ libraryRoots, flash }: { libraryRoots: string[]; fla
   const [scanning, setScanning] = useState<{ completed: number; total: number } | null>(null)
   const [applying, setApplying] = useState(false)
   const [rows, setRows] = useState<Record<string, RowState>>({})
+  // The latest results, for code that runs after an await (state would be stale there).
+  const rowsRef = useRef<Record<string, RowState>>({})
   const [canUndo, setCanUndo] = useState(false)
   const replanTimers = useRef(new Map<string, number>())
 
@@ -43,7 +46,7 @@ export function Organizer({ libraryRoots, flash }: { libraryRoots: string[]; fla
     void window.electronAPI.canUndoOrganize().then(value => { if (active) setCanUndo(value) })
     const off = window.electronAPI.onOrganizeProgress(progress => {
       if (progress.phase === 'planning') setScanning({ completed: progress.completed, total: progress.total })
-      else setRows(current => ({ ...current, [progress.id]: { status: progress.status, message: progress.message } }))
+      else setRows(current => { const next = { ...current, [progress.id]: { status: progress.status, message: progress.message } }; rowsRef.current = next; return next })
     })
     return () => { active = false; off() }
   }, [libraryRoots])
@@ -85,12 +88,15 @@ export function Organizer({ libraryRoots, flash }: { libraryRoots: string[]; fla
   const apply = async () => {
     const selected = plan.filter(item => item.selected)
     if (!selected.length) return
-    setApplying(true); setRows({})
+    // Settings → Confirm before filing files.
+    if ((await loadAppSettings()).confirmDestructive && !window.confirm(`Move ${selected.length} song${selected.length === 1 ? '' : 's'} into ${destination || 'the library'}? Undo can put the batch back.`)) return
+    setApplying(true); setRows({}); rowsRef.current = {}
     try {
       const result = await window.electronAPI.applyOrganize(plan, { destination, pathTemplate: template, rewriteTags, fetchLyrics, retimeLyrics: retime, embedLyrics })
       flash(`${result.done} song${result.done === 1 ? '' : 's'} filed.`)
       setCanUndo(await window.electronAPI.canUndoOrganize())
-      setPlan(current => current.filter(item => !item.selected || rows[item.id]?.status === 'error'))
+      // Songs that failed stay in the plan so they can be tried again.
+      setPlan(current => current.filter(item => !item.selected || rowsRef.current[item.id]?.status === 'error'))
     } finally { setApplying(false) }
   }
 

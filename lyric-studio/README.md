@@ -58,6 +58,10 @@ To try it without installing, run `run.bat` from the folder (the Python packages
 
 Downloads show their progress and resume where they stopped if interrupted.
 
+## Inside Lyrigen
+
+[Lyrigen](https://github.com/mufaddalhirani/lyrigen) runs the same engine from its **Lyrics Finder → Sync with AI** panel. In Lyrigen 3, the player's **Sync syllables with AI** button sends the song you are listening to straight there, with its lyrics and syllable timing already chosen — press Generate and keep listening; the sync carries on in the background and the new lyrics appear when it is done.
+
 ## Command line
 
 ```

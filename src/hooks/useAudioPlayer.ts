@@ -38,7 +38,16 @@ function makeDriveCurve(amount: number) {
   return curve
 }
 
+// Volume, EQ and leveling outlast the session; speed, pitch, karaoke and
+// loops are per-listen and start fresh.
+const SOUND_KEY = 'lyrigen-sound-v1'
+type SavedSound = { volume: number; muted: boolean; eqPreset: string; eqBands: number[]; leveling: boolean }
+function loadSound(): Partial<SavedSound> {
+  try { return JSON.parse(localStorage.getItem(SOUND_KEY) ?? '{}') as Partial<SavedSound> } catch { return {} }
+}
+
 export function useAudioPlayer(visualsEnabled = true) {
+  const saved = useRef(loadSound()).current
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const animationRef = useRef<ReturnType<typeof setTimeout>>()
   const visualsEnabledRef = useRef(visualsEnabled)
@@ -51,7 +60,7 @@ export function useAudioPlayer(visualsEnabled = true) {
   const vizAnalyserRef = useRef<AnalyserNode | null>(null)
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null)
   const waveShaperRef = useRef<WaveShaperNode | null>(null)
-  const driveAmountRef = useRef(0)
+  const driveAmountRef = useRef(DRIVE_PRESETS[loadSound().eqPreset ?? ''] ?? 0)
   const filtersRef = useRef<BiquadFilterNode[]>([])
   const normalPathRef = useRef<GainNode | null>(null)
   // Song transitions: the current song's own fader, and a second, hidden
@@ -71,8 +80,8 @@ export function useAudioPlayer(visualsEnabled = true) {
   const lastVisualRenderRef = useRef(0)
   const loopRef = useRef<{ start: number | null; end: number | null }>({ start: null, end: null })
   const karaokeRef = useRef(false)
-  const levelingRef = useRef(false)
-  const eqRef = useRef([...EQ_PRESETS.Flat])
+  const levelingRef = useRef(Boolean(saved.leveling))
+  const eqRef = useRef(saved.eqBands?.length === 6 ? [...saved.eqBands] : [...EQ_PRESETS.Flat])
   const genreChainRef = useRef<GenreChain | null>(null)
   // The user's own speed dial and the mode's tempo multiply together, so both
   // are tracked separately and the product is what reaches the element.
@@ -83,21 +92,24 @@ export function useAudioPlayer(visualsEnabled = true) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTimeMs, setCurrentTimeMs] = useState(0)
   const [durationMs, setDurationMs] = useState(0)
-  const [volume, setVolume] = useState(1)
-  const [isMuted, setIsMuted] = useState(false)
+  const [volume, setVolume] = useState(typeof saved.volume === 'number' ? Math.max(0, Math.min(1, saved.volume)) : 1)
+  const [isMuted, setIsMuted] = useState(Boolean(saved.muted))
   const [playbackRate, setPlaybackRate] = useState(1)
   const [preservePitch, setPreservePitch] = useState(true)
   // Audio energy drives CSS custom properties only. Holding it in React state
   // re-rendered the whole player tree ~7x a second to change two numbers that
   // nothing in React actually reads, so it is written straight to the DOM.
   const visualNodeRef = useRef<HTMLElement | null>(null)
-  const [eqBands, setEqBands] = useState<number[]>([...EQ_PRESETS.Flat])
-  const [eqPreset, setEqPreset] = useState('Flat')
+  const [eqBands, setEqBands] = useState<number[]>(() => [...eqRef.current])
+  const [eqPreset, setEqPreset] = useState(saved.eqPreset && (saved.eqPreset === 'Custom' || EQ_PRESETS[saved.eqPreset]) ? saved.eqPreset : 'Flat')
   const [karaokeMode, setKaraokeMode] = useState(false)
-  const [leveling, setLeveling] = useState(false)
+  const [leveling, setLeveling] = useState(levelingRef.current)
   const [loopStartMs, setLoopStartMs] = useState<number | null>(null)
   const [loopEndMs, setLoopEndMs] = useState<number | null>(null)
   const [genreMode, setGenreMode] = useState<GenreModeId>('off')
+  useEffect(() => {
+    try { localStorage.setItem(SOUND_KEY, JSON.stringify({ volume, muted: isMuted, eqPreset, eqBands, leveling } satisfies SavedSound)) } catch { /* not remembered */ }
+  }, [volume, isMuted, eqPreset, eqBands, leveling])
 
   const syncSignalPath = useCallback(() => {
     if (normalPathRef.current) normalPathRef.current.gain.value = karaokeRef.current ? 0 : 1
@@ -580,9 +592,10 @@ export function useAudioPlayer(visualsEnabled = true) {
     setDurationMs(audio.duration * 1000)
     setCurrentTimeMs(0)
     audio.volume = volume * volume
+    audio.muted = isMuted
     syncPlaybackRate()
     clearLoop()
-  }, [clearLoop, syncPlaybackRate, volume])
+  }, [clearLoop, isMuted, syncPlaybackRate, volume])
 
   const handlePlay = useCallback(() => {
     setIsPlaying(true)

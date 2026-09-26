@@ -117,7 +117,7 @@ export function LyricsFinder({ track, onClose, onApply, onSaved }: Props) {
   const toggleSource = (id: LyricSourceId) => setSources(current => current.includes(id) ? (current.length > 1 ? current.filter(item => item !== id) : current) : [...current, id])
 
   return <div className="finder-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="finder-dialog" role="dialog" aria-modal="true" aria-label="Lyrics finder">
+    <section className="finder-dialog" role="dialog" aria-modal="true" aria-label="Lyrics finder" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
       <div className="finder-head">
         <div><span className="kicker">LYRICS FINDER</span><h3>{track.title}</h3><p>{track.artist || 'Unknown artist'}{track.album ? ` · ${track.album}` : ''}{track.duration ? ` · ${prettyTime(track.duration)}` : ''}{videoId ? ` · YouTube ${videoId}` : ''}</p></div>
         <button onClick={onClose} aria-label="Close lyrics finder"><Icon name="close" size={17} /></button>

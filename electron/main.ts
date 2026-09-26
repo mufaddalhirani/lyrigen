@@ -636,6 +636,19 @@ function createWindow() {
     console.log(`[renderer] ${message}`)
   })
 
+  // The window only ever shows Lyrigen. A link that tries to open a window or
+  // navigate it away (a stray <a>, dropped file, lyric text) opens in the
+  // browser if it is a web page, and is refused otherwise.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url === win?.webContents.getURL()) return
+    event.preventDefault()
+    if (/^https:\/\//i.test(url)) void shell.openExternal(url)
+  })
+
   // A frameless window's own maximize can spill past the taskbar, so pin it
   // to the work area instead.
   win.on('maximize', () => { if (win) win.setBounds(screen.getDisplayMatching(win.getBounds()).workArea) })
@@ -1073,7 +1086,9 @@ ipcMain.handle('get-library', () => {
   const snapshot = !activeScan && readSnapshot(roots)
   if (snapshot) {
     libraryCache = snapshot
-    void scanAllLibraries(roots).then(result => win?.webContents.send('library-updated', { ...result, items: withStoredTrackState(result.items) })).catch(console.error)
+    // Settings → Rescan folders on launch. Off, the folder watchers still pick
+    // up anything that changes while Lyrigen is open.
+    if (getStateStore().get().settings.rescanOnStartup !== false) void scanAllLibraries(roots).then(result => win?.webContents.send('library-updated', { ...result, items: withStoredTrackState(result.items) })).catch(console.error)
     return { ...snapshot, items: withStoredTrackState(snapshot.items) }
   }
   return activeScan || scanAllLibraries(roots)

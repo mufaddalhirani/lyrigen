@@ -217,8 +217,8 @@ interface CatalogResult {
 interface AppSettings {
   /** Start playing the last track automatically when Lyrigen opens. */
   autoplayOnStartup: boolean
-  /** Pick each track up where you stopped, rather than from the beginning. */
-  resumePlayback: boolean
+  /** Retired (songs always start from the top); kept so old settings files still parse. */
+  resumePlayback?: boolean
   /** Rescan library folders on launch instead of trusting the cache. */
   rescanOnStartup: boolean
   /** Closing the window leaves Lyrigen running in the tray. */

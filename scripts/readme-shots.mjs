@@ -39,6 +39,13 @@ const seek = seconds => win.evaluate(value => { const audio = document.querySele
 await seek(13.2); await win.waitForTimeout(2600); await shot('player')
 await seek(20.6); await win.waitForTimeout(1800); await shot('player-interlude')
 
+// Kinetic: words land as they are sung, held notes in the serif.
+await win.locator('.view-mode-button').click(); await win.waitForTimeout(250)
+await win.locator('.view-mode-option', { hasText: 'Kinetic' }).click(); await win.waitForTimeout(400)
+await seek(13.6); await win.waitForTimeout(2400); await shot('kinetic')
+await win.locator('.view-mode-button').click(); await win.waitForTimeout(250)
+await win.locator('.view-mode-option', { hasText: 'Balanced' }).click(); await win.waitForTimeout(400)
+
 // brat mode.
 await win.getByRole('button', { name: 'Sound and lyrics settings' }).click().catch(() => {})
 await win.waitForTimeout(400)

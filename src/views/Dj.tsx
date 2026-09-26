@@ -413,14 +413,17 @@ export function DjView({ library, flash }: { library: LibraryTrack[]; flash: (me
     return () => cancelAnimationFrame(frame)
   }, [])
 
-  // Space plays the louder deck; nothing else is bound, so typing in search is safe.
+  // Space plays the louder deck; nothing else is bound, so typing in search is
+  // safe. Caught first (capture) and marked handled, so the player bar's own
+  // Space does not also fire and fight the deck.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return
+      if ((event.target as HTMLElement | null)?.closest?.('button')) return
       if (event.code === 'Space') { event.preventDefault(); void engine.decks[engine.crossfader <= 0.5 ? 'a' : 'b'].toggle() }
     }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
   }, [])
 
   return <div className="dj-view">

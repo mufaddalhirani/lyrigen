@@ -14,9 +14,10 @@ const RANGES: Array<{ id: Range; label: string; blurb: string }> = [
 ]
 
 function hoursListened(seconds: number) {
-  if (seconds < 3600) return { value: Math.round(seconds / 60), unit: seconds === 60 ? 'minute' : 'minutes' }
+  if (seconds < 3600) { const minutes = Math.round(seconds / 60); return { value: minutes, unit: minutes === 1 ? 'minute' : 'minutes' } }
   const hours = seconds / 3600
-  return { value: hours >= 10 ? Math.round(hours) : Math.round(hours * 10) / 10, unit: 'hours' }
+  const value = hours >= 10 ? Math.round(hours) : Math.round(hours * 10) / 10
+  return { value, unit: value === 1 ? 'hour' : 'hours' }
 }
 
 function dayLabel(date: string) {
